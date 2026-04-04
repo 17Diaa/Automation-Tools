@@ -51,6 +51,11 @@ CRON_STATE_PATH = os.path.join(BASE_DIR, "cron_state.json")
 BLOB_META_GLOBAL = "meta/global_config.json"
 BLOB_META_CRON = "meta/cron_state.json"
 
+
+def _instance_config_blob_path(instance_id):
+    return f"instances/{instance_id}/config.json"
+
+
 # None = not probed yet; True/False after first write attempt (e.g. Vercel read-only FS).
 _CRON_FILE_PERSIST_OK = None
 
@@ -119,26 +124,77 @@ def _content_type_for_ext(ext):
 # Global config (instances list)
 # ---------------------------------------------------------------------------
 
-def load_global_config():
-    if blob_enabled():
-        data = get_json(BLOB_META_GLOBAL)
-        if data is None:
-            init = {"instances": []}
-            put_json(BLOB_META_GLOBAL, init)
-            return init
-        return data
-    if not os.path.exists(GLOBAL_CONFIG_PATH):
-        save_global_config({"instances": []})
-    with open(GLOBAL_CONFIG_PATH, "r") as f:
-        return json.load(f)
-
-
 def save_global_config(cfg):
     if blob_enabled():
         put_json(BLOB_META_GLOBAL, cfg)
         return
     with open(GLOBAL_CONFIG_PATH, "w") as f:
         json.dump(cfg, f, indent=2)
+
+
+def _discover_instance_ids_from_blob():
+    """Instance ids that have instances/<id>/config.json (source of truth on Blob)."""
+    ids = set()
+    for b in list_blobs(prefix="instances/", limit=1000):
+        p = (b.get("pathname") or "").strip("/")
+        parts = p.split("/")
+        if len(parts) == 3 and parts[0] == "instances" and parts[2] == "config.json":
+            ids.add(parts[1])
+    return ids
+
+
+def _reconcile_blob_instance_registry(gcfg):
+    """
+    Merge meta/global_config.json with real Blob instance configs.
+    Fixes empty UI when config.json exists but registry was lost or wiped.
+    """
+    if not blob_enabled():
+        return gcfg
+    inst = gcfg.get("instances")
+    if not isinstance(inst, list):
+        inst = []
+    seen = set()
+    out = []
+    for i in inst:
+        if not isinstance(i, dict) or not i.get("id"):
+            continue
+        iid = i["id"]
+        if iid in seen:
+            continue
+        seen.add(iid)
+        out.append({"id": iid, "name": i.get("name", iid)})
+    blob_ids = _discover_instance_ids_from_blob()
+    changed = False
+    for iid in sorted(blob_ids):
+        if iid in seen:
+            continue
+        cfg = get_json(_instance_config_blob_path(iid))
+        name = (cfg or {}).get("name", iid)
+        out.append({"id": iid, "name": name})
+        seen.add(iid)
+        changed = True
+    gcfg = dict(gcfg)
+    gcfg["instances"] = out
+    if changed:
+        save_global_config(gcfg)
+    return gcfg
+
+
+def load_global_config():
+    if blob_enabled():
+        data = get_json(BLOB_META_GLOBAL)
+        gcfg = dict(data) if isinstance(data, dict) else {}
+        if not isinstance(gcfg.get("instances"), list):
+            gcfg["instances"] = []
+        # Do not write empty meta on every failed read — that overwrote a good registry.
+        gcfg = _reconcile_blob_instance_registry(gcfg)
+        if data is None and not gcfg.get("instances"):
+            put_json(BLOB_META_GLOBAL, {"instances": []})
+        return gcfg
+    if not os.path.exists(GLOBAL_CONFIG_PATH):
+        save_global_config({"instances": []})
+    with open(GLOBAL_CONFIG_PATH, "r") as f:
+        return json.load(f)
 
 
 # ---------------------------------------------------------------------------
@@ -250,10 +306,6 @@ def get_instance_dir(instance_id):
 
 def get_instance_config_path(instance_id):
     return os.path.join(get_instance_dir(instance_id), "config.json")
-
-
-def _instance_config_blob_path(instance_id):
-    return f"instances/{instance_id}/config.json"
 
 
 def load_instance_config(instance_id):

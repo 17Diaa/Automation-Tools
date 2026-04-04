@@ -16,8 +16,12 @@ BLOB_API_BASE = os.environ.get("VERCEL_BLOB_API_URL", "https://vercel.com/api/bl
 API_VERSION = os.environ.get("VERCEL_BLOB_API_VERSION", "12")
 
 
+def _strip_env(s: str) -> str:
+    return (s or "").strip().strip('"').strip("'")
+
+
 def _token() -> str:
-    return (os.environ.get("BLOB_READ_WRITE_TOKEN") or "").strip()
+    return _strip_env(os.environ.get("BLOB_READ_WRITE_TOKEN", ""))
 
 
 def blob_enabled() -> bool:
@@ -25,7 +29,10 @@ def blob_enabled() -> bool:
 
 
 def _access() -> str:
-    a = (os.environ.get("BLOB_ACCESS") or "private").strip().lower()
+    """Must match store type: private store → 'private' only (else Blob API 400)."""
+    a = _strip_env(os.environ.get("BLOB_ACCESS", "")).lower()
+    if not a:
+        return "private"
     return a if a in ("public", "private") else "private"
 
 
