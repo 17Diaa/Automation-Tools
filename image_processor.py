@@ -8,6 +8,15 @@ from io import BytesIO
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
+# Bundled OFL font — Vercel/Linux neturi Windows šriftų; be TTF tekstas lieka su load_default() (~ne matomas).
+_FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
+_PACKAGED_FONT_CANDIDATES = (
+    "NotoSans-SemiBold.ttf",
+    "NotoSans-Bold.ttf",
+    "NotoSans-Medium.ttf",
+    "NotoSans-Regular.ttf",
+)
+
 
 def _open_image(source):
     """Open from filesystem path or raw bytes."""
@@ -17,23 +26,34 @@ def _open_image(source):
 
 
 def get_font(size):
-    """Find a suitable font from the system."""
+    """TrueType šriftas: pirmiausia projekto fonts/ (Vercel), tada OS katalogai."""
+    for name in _PACKAGED_FONT_CANDIDATES:
+        path = os.path.join(_FONT_DIR, name)
+        if os.path.isfile(path):
+            try:
+                return ImageFont.truetype(path, size)
+            except (OSError, IOError):
+                continue
     font_options = [
         "GOTHICB.TTF", "GOTH.TTF", "arial.ttf", "arialbd.ttf",
-        "GOTHIC.TTF", "impact.ttf", "IMPACT.TTF"
+        "GOTHIC.TTF", "impact.ttf", "IMPACT.TTF",
+        "DejaVuSans-Bold.ttf", "DejaVuSans.ttf", "LiberationSans-Bold.ttf",
     ]
     font_dirs = [
         "",
         "C:/Windows/Fonts/",
         "/usr/share/fonts/",
         "/usr/share/fonts/truetype/",
-        "/System/Library/Fonts/"
+        "/usr/share/fonts/truetype/dejavu/",
+        "/usr/share/fonts/truetype/liberation/",
+        "/System/Library/Fonts/",
+        "/System/Library/Fonts/Supplemental/",
     ]
     for font_name in font_options:
         for font_dir in font_dirs:
             try:
                 return ImageFont.truetype(os.path.join(font_dir, font_name), size)
-            except (IOError, OSError):
+            except (OSError, IOError):
                 continue
     return ImageFont.load_default()
 
