@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>17D AutoPilot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+  <!-- ===================== LOGIN ===================== -->
+  <div id="login-page" class="login-page">
+    <div class="login-card">
+      <div class="login-brand">
+        <span class="brand-icon">17D</span>
+        <span class="brand-text">AutoPilot</span>
+      </div>
+      <p class="login-subtitle">Sign in to continue</p>
+      <div class="field" style="margin-bottom:14px">
+        <label for="login-user">Username</label>
+        <input type="text" id="login-user" placeholder="Username" autofocus>
+      </div>
+      <div class="field" style="margin-bottom:20px">
+        <label for="login-pass">Password</label>
+        <input type="password" id="login-pass" placeholder="Password" onkeydown="if(event.key==='Enter')doLogin()">
+      </div>
+      <div id="login-error" style="color:var(--red);font-size:13px;margin-bottom:12px;display:none"></div>
+      <button class="btn btn-accent" style="width:100%" onclick="doLogin()">Sign In</button>
+    </div>
+  </div>
+
+  <!-- ===================== MAIN APP ===================== -->
+  <div id="app" style="display:none">
+
+    <!-- Navbar -->
+    <nav class="navbar">
+      <div class="nav-inner">
+        <a href="/" class="nav-brand" onclick="event.preventDefault()">
+          <span class="brand-icon">17D</span>
+          <span class="brand-text">AutoPilot</span>
+        </a>
+        <div class="nav-links">
+          <a href="#" class="nav-link active">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
+            <span>Carousel Uploader</span>
+          </a>
+          <a href="#" class="nav-link disabled">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            <span>Caption AI</span>
+          </a>
+          <a href="#" class="nav-link disabled">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+            <span>Analytics</span>
+          </a>
+          <button class="btn btn-sm btn-outline" onclick="doLogout()" style="margin-left:12px">Logout</button>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Instance tabs -->
+    <div class="instance-bar">
+      <div class="instance-inner" id="instance-tabs"></div>
+    </div>
+
+    <!-- Main content -->
+    <div class="container" id="main-content">
+      <div id="no-instances" style="display:none">
+        <div class="empty" style="margin-top:60px;padding:40px">
+          <p style="font-size:16px;color:var(--text-secondary);margin-bottom:16px">No instances yet</p>
+          <button class="btn btn-accent" onclick="openNewInstanceModal()">Create your first instance</button>
+        </div>
+      </div>
+
+      <div id="instance-content" style="display:none">
+        <header>
+          <div class="instance-header">
+            <span class="instance-name-display" id="instance-name-label"></span>
+            <button class="btn-delete-instance" onclick="deleteCurrentInstance()">Delete Instance</button>
+          </div>
+          <h1>Carousel Uploader</h1>
+          <p class="subtitle">Automated TikTok slideshow posting</p>
+        </header>
+
+        <!-- Scheduler -->
+        <section class="card">
+          <h2>Scheduler</h2>
+          <p class="scheduler-random-hint">After each run the app waits a <strong>random</strong> delay (default <strong>15–60</strong> min + extra jitter) so posts are not on a fixed clock. Override with env <code>UPLOAD_RANDOM_MIN_MINUTES</code>, <code>UPLOAD_RANDOM_MAX_MINUTES</code>, <code>UPLOAD_RANDOM_JITTER_SECONDS</code>. Vercel cron should run every 15 min — <code>/api/cron</code> only uploads when the next random slot is due.</p>
+          <div class="scheduler-controls">
+            <div class="field">
+              <label for="interval">Saved interval (legacy / optional)</label>
+              <div class="input-group">
+                <input type="number" id="interval" min="1" value="60">
+                <span class="unit">minutes</span>
+              </div>
+            </div>
+            <div class="scheduler-buttons">
+              <button id="btn-start" class="btn btn-green" onclick="startScheduler()">Start</button>
+              <button id="btn-stop" class="btn btn-red" onclick="stopScheduler()">Stop</button>
+            </div>
+            <div class="status-badge stopped" id="scheduler-status">Stopped</div>
+          </div>
+        </section>
+
+        <!-- Template Settings -->
+        <section class="card">
+          <h2>Template Settings</h2>
+          <div class="fields-grid">
+            <div class="field">
+              <label for="artist">Artist Name</label>
+              <input type="text" id="artist" placeholder="e.g. 17Diamonds" value="17Diamonds">
+            </div>
+            <div class="field">
+              <label for="song">Song Title</label>
+              <input type="text" id="song" placeholder="e.g. Summer Techno 2026" value="Summer Techno 2026">
+            </div>
+          </div>
+          <div class="field" style="margin-bottom:16px">
+            <label for="blur">Blur Amount: <span id="blur-val">60</span>%</label>
+            <input type="range" id="blur" min="0" max="100" value="60" oninput="document.getElementById('blur-val').textContent=this.value">
+          </div>
+          <button class="btn btn-accent" onclick="saveSettings()">Save Settings</button>
+        </section>
+
+        <!-- Post Settings -->
+        <section class="card">
+          <h2>Post Settings</h2>
+          <div class="fields-grid">
+            <div class="field">
+              <label for="post-title">Post Title</label>
+              <input type="text" id="post-title" placeholder="Carousel title (max 90 chars)">
+            </div>
+            <div class="field">
+              <label for="post-caption">Caption</label>
+              <input type="text" id="post-caption" placeholder="Caption text / hashtags">
+            </div>
+          </div>
+          <button class="btn btn-accent" onclick="saveSettings()">Save Post Settings</button>
+        </section>
+
+        <!-- Accounts -->
+        <section class="card">
+          <h2>TikTok Accounts</h2>
+          <div id="accounts-list"></div>
+          <div class="add-account">
+            <h3>Add Account</h3>
+            <div class="fields-grid">
+              <div class="field">
+                <label for="new-username">Username (from upload-post)</label>
+                <input type="text" id="new-username" placeholder="managed user profile name">
+              </div>
+            </div>
+            <button class="btn btn-accent" onclick="addAccount()">Add Account</button>
+          </div>
+        </section>
+
+        <!-- Images Status -->
+        <section class="card">
+          <h2>Images</h2>
+          <p class="card-lead">Locally files are stored under <code>instances/&lt;id&gt;/Images</code> and <code>…/Playlist</code>. Upload or remove files here.</p>
+          <div class="images-info" id="images-info">Loading...</div>
+          <div class="upload-rows">
+            <div class="upload-block">
+              <h3 class="upload-block-title">Carousel queue (slides 1–2)</h3>
+              <div class="upload-row">
+                <input type="file" id="upload-images-input" class="file-input" multiple accept="image/png,image/jpeg,image/webp,image/bmp,.jpg,.jpeg,.png,.webp,.bmp">
+                <button type="button" class="btn btn-accent btn-sm" onclick="uploadToImages()">Add images</button>
+              </div>
+            </div>
+            <div class="upload-block">
+              <h3 class="upload-block-title">Playlist (slide 3)</h3>
+              <div class="upload-row">
+                <input type="file" id="upload-playlist-input" class="file-input" multiple accept="image/png,image/jpeg,image/webp,image/bmp,.jpg,.jpeg,.png,.webp,.bmp">
+                <button type="button" class="btn btn-accent btn-sm" onclick="uploadToPlaylist()">Add to playlist</button>
+              </div>
+            </div>
+            <p class="upload-hint" id="github-hint" style="display:none">On Vercel the server disk does not persist between requests. Add <code>GITHUB_TOKEN</code> and <code>GITHUB_REPO</code> (e.g. <code>owner/repo</code>) in project env — uploads are committed to the repo.</p>
+          </div>
+          <div class="image-actions">
+            <button class="btn btn-outline" onclick="refreshImages()">Refresh</button>
+            <button class="btn btn-outline" onclick="resetIndex()">Reset Index</button>
+          </div>
+        </section>
+
+        <!-- Manual Actions -->
+        <section class="card">
+          <h2>Actions</h2>
+          <p class="actions-hint">TikTok upload always takes the <strong>next</strong> queue photo and moves the pointer forward (round-robin). Preview cycles through the same queue in order for checking only — it does <strong>not</strong> change which photo uploads next.</p>
+          <div class="manual-buttons">
+            <button class="btn btn-purple" onclick="previewCarousel()">Generate Preview</button>
+            <button class="btn btn-outline btn-sm" type="button" onclick="resetPreviewWalk()">Reset preview walk</button>
+            <button class="btn btn-green" onclick="uploadNow()">Upload Now</button>
+          </div>
+          <p class="preview-offset-label" id="preview-offset-label"></p>
+          <div id="preview-slides" class="preview-slides" aria-live="polite"></div>
+          <div id="action-result" class="result-box"></div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== NEW INSTANCE MODAL ===================== -->
+  <div class="modal-overlay" id="new-instance-modal">
+    <div class="modal">
+      <h2>New Instance</h2>
+      <div class="field">
+        <label for="new-instance-name">Instance Name</label>
+        <input type="text" id="new-instance-name" placeholder="e.g. Summer Techno Campaign" onkeydown="if(event.key==='Enter')createInstance()">
+      </div>
+      <div class="modal-buttons">
+        <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-accent" onclick="createInstance()">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API = '';
+    let currentInstance = null;
+    let instances = [];
+    /** Preview only: which offset from current upload head (0 = next to upload, 1 = after that, …). */
+    let previewQueueOffset = 0;
+
+    // ===================== LOGIN =====================
+    function doLogin() {
+      const user = document.getElementById('login-user').value;
+      const pass = document.getElementById('login-pass').value;
+      if (user === 'root' && pass === 'toor') {
+        sessionStorage.setItem('authed', '1');
+        showApp();
+      } else {
+        const err = document.getElementById('login-error');
+        err.textContent = 'Invalid credentials';
+        err.style.display = 'block';
+      }
+    }
+
+    function doLogout() {
+      sessionStorage.removeItem('authed');
+      location.reload();
+    }
+
+    function showApp() {
+      document.getElementById('login-page').style.display = 'none';
+      document.getElementById('app').style.display = 'block';
+      loadInstances();
+    }
+
+    // Check auth on load
+    if (sessionStorage.getItem('authed') === '1') {
+      showApp();
+    }
+
+    // ===================== INSTANCES =====================
+    async function loadInstances() {
+      const res = await fetch(`${API}/api/instances`);
+      instances = await res.json();
+      renderTabs();
+
+      if (instances.length === 0) {
+        document.getElementById('no-instances').style.display = 'block';
+        document.getElementById('instance-content').style.display = 'none';
+      } else {
+        document.getElementById('no-instances').style.display = 'none';
+        if (!currentInstance || !instances.find(i => i.id === currentInstance)) {
+          switchInstance(instances[0].id);
+        } else {
+          switchInstance(currentInstance);
+        }
+      }
+    }
+
+    function renderTabs() {
+      const container = document.getElementById('instance-tabs');
+      const tabs = instances.map(inst => `
+        <button class="instance-tab ${inst.id === currentInstance ? 'active' : ''}" onclick="switchInstance('${inst.id}')">
+          <span class="tab-dot"></span>
+          ${inst.name}
+        </button>
+      `).join('');
+      container.innerHTML = tabs + `<button class="instance-tab-add" onclick="openNewInstanceModal()" title="New instance">+</button>`;
+    }
+
+    async function switchInstance(id) {
+      currentInstance = id;
+      previewQueueOffset = 0;
+      updatePreviewOffsetLabel();
+      const inst = instances.find(i => i.id === id);
+      document.getElementById('instance-name-label').textContent = `Instance: ${inst ? inst.name : id}`;
+      document.getElementById('instance-content').style.display = 'block';
+      document.getElementById('no-instances').style.display = 'none';
+      renderTabs();
+      loadConfig();
+      loadAccounts();
+      refreshImages();
+      checkScheduler();
+    }
+
+    function openNewInstanceModal() {
+      document.getElementById('new-instance-modal').classList.add('open');
+      document.getElementById('new-instance-name').value = '';
+      document.getElementById('new-instance-name').focus();
+    }
+
+    function closeModal() {
+      document.getElementById('new-instance-modal').classList.remove('open');
+    }
+
+    async function createInstance() {
+      const name = document.getElementById('new-instance-name').value.trim();
+      if (!name) return;
+      const res = await fetch(`${API}/api/instances`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      const data = await res.json();
+      closeModal();
+      currentInstance = data.id;
+      await loadInstances();
+    }
+
+    async function deleteCurrentInstance() {
+      if (!currentInstance) return;
+      const inst = instances.find(i => i.id === currentInstance);
+      if (!confirm(`Delete instance "${inst?.name || currentInstance}"? This removes all its images and settings.`)) return;
+      await fetch(`${API}/api/instances/${currentInstance}`, { method: 'DELETE' });
+      currentInstance = null;
+      await loadInstances();
+    }
+
+    // ===================== CONFIG =====================
+    function iid() { return currentInstance; }
+
+    async function loadConfig() {
+      if (!iid()) return;
+      const res = await fetch(`${API}/api/instances/${iid()}/config`);
+      const cfg = await res.json();
+      document.getElementById('interval').value = cfg.upload_interval_minutes || 60;
+      document.getElementById('artist').value = cfg.artist_name || '17Diamonds';
+      document.getElementById('song').value = cfg.song_title || 'Summer Techno 2026';
+      document.getElementById('blur').value = cfg.blur_amount || 60;
+      document.getElementById('blur-val').textContent = cfg.blur_amount || 60;
+      document.getElementById('post-title').value = cfg.default_title || '';
+      document.getElementById('post-caption').value = cfg.default_caption || '';
+    }
+
+    async function saveSettings() {
+      if (!iid()) return;
+      const data = {
+        upload_interval_minutes: parseInt(document.getElementById('interval').value),
+        artist_name: document.getElementById('artist').value,
+        song_title: document.getElementById('song').value,
+        blur_amount: parseInt(document.getElementById('blur').value),
+        default_title: document.getElementById('post-title').value,
+        default_caption: document.getElementById('post-caption').value,
+      };
+      await fetch(`${API}/api/instances/${iid()}/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      showResult('Settings saved', 'success');
+    }
+
+    // ===================== ACCOUNTS =====================
+    async function loadAccounts() {
+      if (!iid()) return;
+      const res = await fetch(`${API}/api/instances/${iid()}/accounts`);
+      const accounts = await res.json();
+      const container = document.getElementById('accounts-list');
+      if (accounts.length === 0) {
+        container.innerHTML = '<p class="empty">No accounts added yet</p>';
+        return;
+      }
+      container.innerHTML = accounts.map((a, i) => `
+        <div class="account-row">
+          <div class="account-info">
+            <div class="account-avatar">${(a.username || '?')[0].toUpperCase()}</div>
+            <span class="account-name">${a.username}</span>
+            <span class="account-status ${a.enabled ? 'active' : 'disabled'}">${a.enabled ? 'Active' : 'Disabled'}</span>
+          </div>
+          <div class="account-actions">
+            <button class="btn btn-sm btn-outline" onclick="toggleAccount(${i}, ${!a.enabled})">${a.enabled ? 'Disable' : 'Enable'}</button>
+            <button class="btn btn-sm btn-red" onclick="deleteAccount(${i})">Remove</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function addAccount() {
+      if (!iid()) return;
+      const username = document.getElementById('new-username').value.trim();
+      if (!username) return showResult('Username is required', 'error');
+      await fetch(`${API}/api/instances/${iid()}/accounts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username }),
+      });
+      document.getElementById('new-username').value = '';
+      loadAccounts();
+      showResult(`Account "${username}" added`, 'success');
+    }
+
+    async function deleteAccount(idx) {
+      await fetch(`${API}/api/instances/${iid()}/accounts/${idx}`, { method: 'DELETE' });
+      loadAccounts();
+    }
+
+    async function toggleAccount(idx, enabled) {
+      await fetch(`${API}/api/instances/${iid()}/accounts/${idx}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      loadAccounts();
+    }
+
+    // ===================== IMAGES =====================
+    function escapeHtml(s) {
+      if (s == null) return '';
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function buildFileListRows(kind, filenames) {
+      const id = iid();
+      const sub = kind === 'images' ? 'images' : 'playlist';
+      if (!filenames || filenames.length === 0) {
+        return '<p class="file-list-empty">No files yet — use the button above to add.</p>';
+      }
+      return `<div class="file-list">${filenames.map((name) => {
+        const enc = encodeURIComponent(name);
+        const src = `${API}/instances/${id}/${sub}/${enc}`;
+        const delFn = kind === 'images' ? 'deleteImageFile' : 'deletePlaylistFile';
+        return `<div class="file-list-row">
+          <img class="file-thumb" src="${src}" alt="" loading="lazy">
+          <span class="file-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
+          <button type="button" class="btn btn-sm btn-red file-del" onclick='${delFn}(${JSON.stringify(name)})'>Remove</button>
+        </div>`;
+      }).join('')}</div>`;
+    }
+
+    async function refreshImages() {
+      if (!iid()) return;
+      const res = await fetch(`${API}/api/instances/${iid()}/images`);
+      const data = await res.json();
+      const gh = document.getElementById('github-hint');
+      if (gh) gh.style.display = data.github_configured ? 'none' : 'block';
+      const imgs = data.images_folder || [];
+      const pl = data.playlist_folder || [];
+      document.getElementById('images-info').innerHTML = `
+        <div class="info-grid">
+          <div class="info-item">
+            <span class="info-label">Queue count</span>
+            <span class="info-value">${data.total_images}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Current index</span>
+            <span class="info-value">${data.current_index}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Playlist</span>
+            <span class="info-value">${data.playlist_count}</span>
+          </div>
+        </div>
+        <div class="file-list-section">
+          <h4 class="file-list-heading">Carousel queue</h4>
+          ${buildFileListRows('images', imgs)}
+        </div>
+        <div class="file-list-section">
+          <h4 class="file-list-heading">Playlist</h4>
+          ${buildFileListRows('playlist', pl)}
+        </div>
+      `;
+    }
+
+    async function deleteImageFile(name) {
+      if (!iid() || !name) return;
+      if (!confirm(`Remove "${name}" from the carousel queue?`)) return;
+      const res = await fetch(`${API}/api/instances/${iid()}/images/delete-one`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: name }),
+      });
+      const data = await res.json();
+      if (data.error) showResult(data.error, 'error');
+      else {
+        showResult(`Removed: ${data.deleted}`, 'success');
+        refreshImages();
+      }
+    }
+
+    async function deletePlaylistFile(name) {
+      if (!iid() || !name) return;
+      if (!confirm(`Remove "${name}" from playlist?`)) return;
+      const res = await fetch(`${API}/api/instances/${iid()}/playlist/delete-one`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: name }),
+      });
+      const data = await res.json();
+      if (data.error) showResult(data.error, 'error');
+      else {
+        showResult(`Removed: ${data.deleted}`, 'success');
+        refreshImages();
+      }
+    }
+
+    async function resetIndex() {
+      await fetch(`${API}/api/instances/${iid()}/images/reset`, { method: 'POST' });
+      previewQueueOffset = 0;
+      updatePreviewOffsetLabel();
+      refreshImages();
+      showResult('Image index reset to 0', 'success');
+    }
+
+    function resetPreviewWalk() {
+      previewQueueOffset = 0;
+      updatePreviewOffsetLabel();
+      showResult('Preview walk reset — next preview starts from the upload head', 'success');
+    }
+
+    function updatePreviewOffsetLabel() {
+      const el = document.getElementById('preview-offset-label');
+      if (!el) return;
+      el.textContent = previewQueueOffset === 0
+        ? 'Next preview: first in line (same as next TikTok upload).'
+        : `Next preview: +${previewQueueOffset} from upload head (walk-through mode).`;
+    }
+
+    async function uploadToImages() {
+      if (!iid()) return;
+      const input = document.getElementById('upload-images-input');
+      if (!input.files?.length) return showResult('Select at least one file', 'error');
+      const fd = new FormData();
+      for (const f of input.files) fd.append('files', f);
+      showResult('Uploading...', 'info');
+      const res = await fetch(`${API}/api/instances/${iid()}/images/upload`, { method: 'POST', body: fd });
+      const data = await res.json();
+      input.value = '';
+      if (data.error) return showResult(data.error, 'error');
+      let msg = `Saved: ${data.saved.join(', ')}`;
+      if (data.github_enabled && !data.github_warnings) msg += ' (GitHub OK)';
+      if (data.github_warnings?.length) msg += '\nGitHub: ' + data.github_warnings.join('; ');
+      refreshImages();
+      showResult(msg, data.github_warnings?.length ? 'error' : 'success');
+    }
+
+    async function uploadToPlaylist() {
+      if (!iid()) return;
+      const input = document.getElementById('upload-playlist-input');
+      if (!input.files?.length) return showResult('Select at least one file', 'error');
+      const fd = new FormData();
+      for (const f of input.files) fd.append('files', f);
+      showResult('Uploading...', 'info');
+      const res = await fetch(`${API}/api/instances/${iid()}/playlist/upload`, { method: 'POST', body: fd });
+      const data = await res.json();
+      input.value = '';
+      if (data.error) return showResult(data.error, 'error');
+      let msg = `Playlist: ${data.saved.join(', ')}`;
+      if (data.github_enabled && !data.github_warnings) msg += ' (GitHub OK)';
+      if (data.github_warnings?.length) msg += '\nGitHub: ' + data.github_warnings.join('; ');
+      refreshImages();
+      showResult(msg, data.github_warnings?.length ? 'error' : 'success');
+    }
+
+    // ===================== SCHEDULER =====================
+    async function checkScheduler() {
+      if (!iid()) return;
+      const res = await fetch(`${API}/api/instances/${iid()}/scheduler/status`);
+      const data = await res.json();
+      updateSchedulerUI(data.running);
+    }
+
+    async function startScheduler() {
+      await saveSettings();
+      await fetch(`${API}/api/instances/${iid()}/scheduler/start`, { method: 'POST' });
+      updateSchedulerUI(true);
+      showResult('Scheduler started', 'success');
+    }
+
+    async function stopScheduler() {
+      await fetch(`${API}/api/instances/${iid()}/scheduler/stop`, { method: 'POST' });
+      updateSchedulerUI(false);
+      showResult('Scheduler stopped', 'success');
+    }
+
+    function updateSchedulerUI(running) {
+      const badge = document.getElementById('scheduler-status');
+      badge.textContent = running ? 'Running' : 'Stopped';
+      badge.className = `status-badge ${running ? 'running' : 'stopped'}`;
+      document.getElementById('btn-start').disabled = running;
+      document.getElementById('btn-stop').disabled = !running;
+    }
+
+    // ===================== ACTIONS =====================
+    async function previewCarousel() {
+      const strip = document.getElementById('preview-slides');
+      strip.innerHTML = '';
+      showResult('Generating preview...', 'info');
+      const res = await fetch(`${API}/api/instances/${iid()}/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ queue_offset: previewQueueOffset }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        showResult(data.error, 'error');
+        return;
+      }
+      const ts = Date.now();
+      const urls = data.slide_urls || [];
+      strip.innerHTML = urls.map((u, i) =>
+        `<div class="preview-slide"><span class="preview-slide-label">Slide ${i + 1}</span><img src="${u}?t=${ts}" alt="Slide ${i + 1}"></div>`
+      ).join('');
+      const n = data.queue_total || 1;
+      previewQueueOffset = (previewQueueOffset + 1) % n;
+      updatePreviewOffsetLabel();
+      showResult(data.message || `Files: ${(data.slides || []).join(', ')}`, 'success');
+    }
+
+    function formatUploadResultRow(r) {
+      const res = r.result || {};
+      if (res.error) return `${r.account}: KLAIDA — ${res.error}`;
+      const parts = [`${r.account}:`];
+      if (res.request_id) parts.push(`request_id=${res.request_id}`);
+      parts.push(res.status || 'ok');
+      if (res.message) parts.push(res.message);
+      return parts.join(' ');
+    }
+
+    async function uploadNow() {
+      showResult('Uploading to Upload-Post / TikTok...', 'info');
+      const res = await fetch(`${API}/api/instances/${iid()}/upload`, { method: 'POST' });
+      const data = await res.json();
+      if (data.error) {
+        showResult(data.error, 'error');
+      } else if (Array.isArray(data)) {
+        const hasErr = data.some(r => r.result && r.result.error);
+        const text = data.map(formatUploadResultRow).join('\n\n');
+        showResult(text + '\n\nThis posts a 3-image carousel (not an MP4). If you see request_id, publishing may take a few minutes.', hasErr ? 'error' : 'success');
+      } else {
+        showResult(JSON.stringify(data, null, 2), 'success');
+      }
+    }
+
+    function showResult(msg, type) {
+      const box = document.getElementById('action-result');
+      box.textContent = msg;
+      box.className = `result-box ${type}`;
+      box.style.display = 'block';
+      const ms = type === 'success' && String(msg).length > 120 ? 12000 : 4000;
+      if (type === 'success') setTimeout(() => { box.style.display = 'none'; }, ms);
+    }
+  </script>
+</body>
+</html>

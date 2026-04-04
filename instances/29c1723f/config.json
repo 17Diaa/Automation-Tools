@@ -1,0 +1,16 @@
+{
+  "accounts": [
+    {
+      "username": "2tiktokapi",
+      "enabled": true
+    }
+  ],
+  "upload_interval_minutes": 60,
+  "default_title": "Summer Techno Playlist",
+  "default_caption": "2026 Summer Techno Playlist",
+  "image_index": 1,
+  "blur_amount": 60,
+  "artist_name": "17Diamonds",
+  "song_title": "Summer Techno 2026",
+  "name": "Summer Techno 2026"
+}
