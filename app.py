@@ -23,7 +23,8 @@ import tempfile
 import threading
 import time
 import uuid
-from flask import Flask, request, jsonify, send_from_directory, redirect
+from flask import Flask, has_request_context, request, jsonify, send_from_directory, redirect
+from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 
 from blob_client import (
@@ -52,7 +53,16 @@ BLOB_META_CRON = "meta/cron_state.json"
 # None = not probed yet; True/False after first write attempt (e.g. Vercel read-only FS).
 _CRON_FILE_PERSIST_OK = None
 
-os.makedirs(INSTANCES_DIR, exist_ok=True)
+
+def _running_on_vercel():
+    return bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV"))
+
+
+# Vercel serverless FS is usually read-only; creating ./instances here crashes the whole import → HTML 500.
+try:
+    os.makedirs(INSTANCES_DIR, exist_ok=True)
+except OSError:
+    pass
 
 SUPPORTED_EXT = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
 
@@ -62,7 +72,7 @@ def _require_blob_on_vercel():
     """Vercel serverless FS is read-only without Blob; fail fast with JSON instead of 500 HTML."""
     if not request.path.startswith("/api"):
         return None
-    if not os.environ.get("VERCEL"):
+    if not _running_on_vercel():
         return None
     if blob_enabled():
         return None
@@ -75,6 +85,19 @@ def _require_blob_on_vercel():
         ),
         503,
     )
+
+
+@app.errorhandler(Exception)
+def _api_json_errors(e):
+    """So /api/* never returns Vercel HTML 500 — frontend can parse JSON."""
+    if isinstance(e, HTTPException):
+        return e
+    if has_request_context() and request.path.startswith("/api"):
+        import traceback
+
+        traceback.print_exc()
+        return jsonify({"error": str(e) or type(e).__name__}), 500
+    raise e
 
 
 def _blob_inst_path(instance_id, subfolder, filename):
