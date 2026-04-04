@@ -18,8 +18,12 @@ from upload_post import UploadPostClient, UploadPostError
 UPLOAD_PHOTOS_URL = "https://api.upload-post.com/api/upload_photos"
 
 
+def _env_api_key():
+    return (os.environ.get("UPLOAD_POST_API_KEY") or "").strip().strip('"').strip("'")
+
+
 def _get_client():
-    key = (os.environ.get("UPLOAD_POST_API_KEY") or "").strip()
+    key = _env_api_key()
     if not key:
         return None, (
             "Nenurodytas UPLOAD_POST_API_KEY. Dashboard → API key, "
@@ -29,7 +33,7 @@ def _get_client():
 
 
 def _api_headers():
-    key = (os.environ.get("UPLOAD_POST_API_KEY") or "").strip()
+    key = _env_api_key()
     return {
         "Authorization": f"Apikey {key}",
         "User-Agent": "upload-post-python-client/2.0.0",
@@ -80,7 +84,7 @@ def _upload_photos_tiktok_multipart(image_paths, username, title_clean, caption,
     post_mode DIRECT_POST, privacy_level, auto_add_music, photo_cover_index,
     tiktok_title / tiktok_description.
     """
-    key = (os.environ.get("UPLOAD_POST_API_KEY") or "").strip()
+    key = _env_api_key()
     if not key:
         return {"error": "Nenurodytas UPLOAD_POST_API_KEY"}
 
