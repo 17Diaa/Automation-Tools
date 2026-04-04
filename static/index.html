@@ -66,6 +66,13 @@
 
     <!-- Main content -->
     <div class="container" id="main-content">
+      <div id="api-load-error" class="card" style="display:none;margin-top:24px">
+        <h2>API nepasiekiama</h2>
+        <p style="color:var(--text-secondary);margin-bottom:12px">Nepavyko užkrauti <code>/api/instances</code>. Dažniausiai tai Vercel funkcijos klaida (500), neteisingi env arba Blob klaida.</p>
+        <p style="font-size:13px;color:var(--text-muted)">Atidaryk naršyklėje <strong>F12 → Console</strong> ir Vercel <strong>Deployments → Functions → Logs</strong>.</p>
+        <pre id="api-load-error-detail" style="margin-top:16px;padding:12px;background:var(--bg-input);border-radius:8px;overflow:auto;font-size:12px"></pre>
+        <button type="button" class="btn btn-outline" style="margin-top:16px" onclick="loadInstances()">Bandyti dar kartą</button>
+      </div>
       <div id="no-instances" style="display:none">
         <div class="empty" style="margin-top:60px;padding:40px">
           <p style="font-size:16px;color:var(--text-secondary);margin-bottom:16px">No instances yet</p>
@@ -254,20 +261,49 @@
 
     // ===================== INSTANCES =====================
     async function loadInstances() {
-      const res = await fetch(`${API}/api/instances`);
-      instances = await res.json();
-      renderTabs();
-
-      if (instances.length === 0) {
-        document.getElementById('no-instances').style.display = 'block';
-        document.getElementById('instance-content').style.display = 'none';
-      } else {
-        document.getElementById('no-instances').style.display = 'none';
-        if (!currentInstance || !instances.find(i => i.id === currentInstance)) {
-          switchInstance(instances[0].id);
-        } else {
-          switchInstance(currentInstance);
+      const errBox = document.getElementById('api-load-error');
+      const errDetail = document.getElementById('api-load-error-detail');
+      const noInst = document.getElementById('no-instances');
+      const instContent = document.getElementById('instance-content');
+      errBox.style.display = 'none';
+      errDetail.textContent = '';
+      try {
+        const res = await fetch(`${API}/api/instances`);
+        const raw = await res.text();
+        let data;
+        try {
+          data = JSON.parse(raw);
+        } catch (parseErr) {
+          throw new Error(`Atsakymas ne JSON (HTTP ${res.status}). Gal serveris grąžina klaidos puslapį.`);
         }
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: ${typeof data === 'object' && data.error ? data.error : raw.slice(0, 200)}`);
+        }
+        if (!Array.isArray(data)) {
+          throw new Error((data && data.error) || 'Netikėtas API atsakymas (ne sąrašas)');
+        }
+        instances = data;
+        renderTabs();
+
+        if (instances.length === 0) {
+          noInst.style.display = 'block';
+          instContent.style.display = 'none';
+        } else {
+          noInst.style.display = 'none';
+          if (!currentInstance || !instances.find(i => i.id === currentInstance)) {
+            switchInstance(instances[0].id);
+          } else {
+            switchInstance(currentInstance);
+          }
+        }
+      } catch (e) {
+        console.error(e);
+        instances = [];
+        document.getElementById('instance-tabs').innerHTML = '';
+        noInst.style.display = 'none';
+        instContent.style.display = 'none';
+        errDetail.textContent = e.message || String(e);
+        errBox.style.display = 'block';
       }
     }
 

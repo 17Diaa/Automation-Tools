@@ -57,6 +57,26 @@ os.makedirs(INSTANCES_DIR, exist_ok=True)
 SUPPORTED_EXT = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
 
 
+@app.before_request
+def _require_blob_on_vercel():
+    """Vercel serverless FS is read-only without Blob; fail fast with JSON instead of 500 HTML."""
+    if not request.path.startswith("/api"):
+        return None
+    if not os.environ.get("VERCEL"):
+        return None
+    if blob_enabled():
+        return None
+    return (
+        jsonify(
+            {
+                "error": "Trūksta BLOB_READ_WRITE_TOKEN: Vercel negali rašyti į diską. "
+                "Storage → Blob → prijunk prie projekto ir Redeploy."
+            }
+        ),
+        503,
+    )
+
+
 def _blob_inst_path(instance_id, subfolder, filename):
     return f"instances/{instance_id}/{subfolder}/{filename}"
 
