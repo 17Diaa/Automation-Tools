@@ -1,13 +1,14 @@
 """
 17D AutoPilot — Flask backend.
-aAS
 Multi-instance carousel uploader. Each instance has its own config,
 image folders, and output folder.
 
-Carousel flow per instance:asd
+Carousel flow per instance:
   Slide 1: Original image from instances/<id>/Images/ (cropped 9:16)
   Slide 2: Same image processed through ImageTemplate (media player overlay)
-  Slide 3: Image from instances/<iad>/Playlist/ (cropped 9:16)
+  Slide 3: Image from instances/<id>/Playlist/ (cropped 9:16)
+
+On Vercel: set BLOB_READ_WRITE_TOKEN so images + config + cron state live in Blob.
 """
 
 import os
@@ -18,12 +19,23 @@ from dotenv import load_dotenv
 load_dotenv()
 import glob
 import random
+import tempfile
 import threading
 import time
 import uuid
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, redirect
 from werkzeug.utils import secure_filename
 
+from blob_client import (
+    blob_enabled,
+    put_bytes,
+    list_blobs,
+    delete_blobs,
+    fetch_url_bytes,
+    get_blob_by_pathname,
+    get_json,
+    put_json,
+)
 from image_processor import create_template, create_simple_9_16
 from tiktok_client import upload_carousel as tiktok_upload, get_upload_status as upload_post_get_status
 from github_client import commit_file as github_commit_file, github_enabled
@@ -34,6 +46,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 INSTANCES_DIR = os.path.join(BASE_DIR, "instances")
 GLOBAL_CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 CRON_STATE_PATH = os.path.join(BASE_DIR, "cron_state.json")
+BLOB_META_GLOBAL = "meta/global_config.json"
+BLOB_META_CRON = "meta/cron_state.json"
 
 # None = not probed yet; True/False after first write attempt (e.g. Vercel read-only FS).
 _CRON_FILE_PERSIST_OK = None
@@ -42,11 +56,33 @@ os.makedirs(INSTANCES_DIR, exist_ok=True)
 
 SUPPORTED_EXT = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
 
+
+def _blob_inst_path(instance_id, subfolder, filename):
+    return f"instances/{instance_id}/{subfolder}/{filename}"
+
+
+def _content_type_for_ext(ext):
+    return {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".bmp": "image/bmp",
+    }.get(ext.lower(), "application/octet-stream")
+
+
 # ---------------------------------------------------------------------------
 # Global config (instances list)
 # ---------------------------------------------------------------------------
 
 def load_global_config():
+    if blob_enabled():
+        data = get_json(BLOB_META_GLOBAL)
+        if data is None:
+            init = {"instances": []}
+            put_json(BLOB_META_GLOBAL, init)
+            return init
+        return data
     if not os.path.exists(GLOBAL_CONFIG_PATH):
         save_global_config({"instances": []})
     with open(GLOBAL_CONFIG_PATH, "r") as f:
@@ -54,6 +90,9 @@ def load_global_config():
 
 
 def save_global_config(cfg):
+    if blob_enabled():
+        put_json(BLOB_META_GLOBAL, cfg)
+        return
     with open(GLOBAL_CONFIG_PATH, "w") as f:
         json.dump(cfg, f, indent=2)
 
@@ -97,6 +136,14 @@ def _stateless_cron_probability():
 
 
 def load_cron_state():
+    if blob_enabled():
+        data = get_json(BLOB_META_CRON)
+        if not data:
+            return {"next_run_epoch": 0.0}
+        try:
+            return {"next_run_epoch": float(data.get("next_run_epoch", 0))}
+        except (TypeError, ValueError):
+            return {"next_run_epoch": 0.0}
     if not os.path.isfile(CRON_STATE_PATH):
         return {"next_run_epoch": 0.0}
     try:
@@ -111,6 +158,9 @@ def load_cron_state():
 
 def _probe_cron_state_writable():
     global _CRON_FILE_PERSIST_OK
+    if blob_enabled():
+        _CRON_FILE_PERSIST_OK = True
+        return True
     if _CRON_FILE_PERSIST_OK is not None:
         return _CRON_FILE_PERSIST_OK
     try:
@@ -128,6 +178,14 @@ def save_cron_state(next_run_epoch, last_run_epoch=None):
     payload = {"next_run_epoch": float(next_run_epoch)}
     if last_run_epoch is not None:
         payload["last_run_epoch"] = float(last_run_epoch)
+    if blob_enabled():
+        try:
+            put_json(BLOB_META_CRON, payload)
+            _CRON_FILE_PERSIST_OK = True
+            return True
+        except Exception:
+            _CRON_FILE_PERSIST_OK = False
+            return False
     try:
         with open(CRON_STATE_PATH, "w") as f:
             json.dump(payload, f, indent=2)
@@ -150,13 +208,25 @@ def get_instance_config_path(instance_id):
     return os.path.join(get_instance_dir(instance_id), "config.json")
 
 
+def _instance_config_blob_path(instance_id):
+    return f"instances/{instance_id}/config.json"
+
+
 def load_instance_config(instance_id):
+    if blob_enabled():
+        data = get_json(_instance_config_blob_path(instance_id))
+        if data is None:
+            raise FileNotFoundError(_instance_config_blob_path(instance_id))
+        return data
     path = get_instance_config_path(instance_id)
     with open(path, "r") as f:
         return json.load(f)
 
 
 def save_instance_config(instance_id, cfg):
+    if blob_enabled():
+        put_json(_instance_config_blob_path(instance_id), cfg)
+        return
     path = get_instance_config_path(instance_id)
     with open(path, "w") as f:
         json.dump(cfg, f, indent=2)
@@ -176,9 +246,10 @@ DEFAULT_INSTANCE_CONFIG = {
 
 def create_instance(name):
     instance_id = uuid.uuid4().hex[:8]
-    inst_dir = get_instance_dir(instance_id)
-    for sub in ["Images", "Playlist", "Output"]:
-        os.makedirs(os.path.join(inst_dir, sub), exist_ok=True)
+    if not blob_enabled():
+        inst_dir = get_instance_dir(instance_id)
+        for sub in ["Images", "Playlist", "Output"]:
+            os.makedirs(os.path.join(inst_dir, sub), exist_ok=True)
     cfg = dict(DEFAULT_INSTANCE_CONFIG)
     cfg["name"] = name
     save_instance_config(instance_id, cfg)
@@ -192,9 +263,14 @@ def create_instance(name):
 
 def delete_instance(instance_id):
     import shutil
-    inst_dir = get_instance_dir(instance_id)
-    if os.path.exists(inst_dir):
-        shutil.rmtree(inst_dir)
+    if blob_enabled():
+        prefix = f"instances/{instance_id}/"
+        urls = [b["url"] for b in list_blobs(prefix=prefix)]
+        delete_blobs(urls)
+    else:
+        inst_dir = get_instance_dir(instance_id)
+        if os.path.exists(inst_dir):
+            shutil.rmtree(inst_dir)
     gcfg = load_global_config()
     gcfg["instances"] = [i for i in gcfg["instances"] if i["id"] != instance_id]
     save_global_config(gcfg)
@@ -212,8 +288,30 @@ def list_images(folder):
     return sorted(set(files))
 
 
+def list_folder_basenames(instance_id, subfolder):
+    if blob_enabled():
+        prefix = f"instances/{instance_id}/{subfolder}/"
+        basenames = []
+        for b in list_blobs(prefix=prefix):
+            p = b.get("pathname") or ""
+            if not p.startswith(prefix):
+                continue
+            rest = p[len(prefix) :]
+            if "/" in rest:
+                continue
+            ext = os.path.splitext(rest)[1].lower()
+            if ext not in SUPPORTED_EXT:
+                continue
+            basenames.append(rest)
+        return sorted(set(basenames))
+    folder = os.path.join(get_instance_dir(instance_id), subfolder)
+    return [os.path.basename(x) for x in list_images(folder)]
+
+
 def resolve_listed_file(instance_id, subfolder, requested_name):
     """Absolute path if basename matches a real image file in that folder (no path traversal)."""
+    if blob_enabled():
+        return None
     basename_req = os.path.basename(requested_name or "")
     if not basename_req:
         return None
@@ -223,6 +321,16 @@ def resolve_listed_file(instance_id, subfolder, requested_name):
 
 
 def delete_listed_file(instance_id, subfolder, requested_name):
+    basename_req = os.path.basename(requested_name or "")
+    if not basename_req:
+        return False
+    if blob_enabled():
+        pathname = _blob_inst_path(instance_id, subfolder, basename_req)
+        b = get_blob_by_pathname(pathname)
+        if not b:
+            return False
+        delete_blobs([b["url"]])
+        return True
     path = resolve_listed_file(instance_id, subfolder, requested_name)
     if not path:
         return False
@@ -234,18 +342,38 @@ def get_next_image(instance_id, advance=True, queue_offset=0):
     """
     Pick a carousel source image from Images/.
 
+    Returns (source, cfg, basename) where source is a filesystem path (local) or bytes (Blob).
+
     image_index = which slot is "next" for real uploads (round-robin).
     queue_offset = for preview only: 0 = that next slot, 1 = one after, etc.
-    (pick = (image_index + queue_offset) % len)
 
     If advance=True (TikTok upload / cron), increment image_index after reading.
     If advance=False (preview), leave image_index unchanged.
     """
     cfg = load_instance_config(instance_id)
+    if blob_enabled():
+        basenames = list_folder_basenames(instance_id, "Images")
+        if not basenames:
+            return None, cfg, None
+        n = len(basenames)
+        idx = cfg.get("image_index", 0) % n
+        off = int(queue_offset) % n if n else 0
+        pick = (idx + off) % n
+        name = basenames[pick]
+        pathname = _blob_inst_path(instance_id, "Images", name)
+        b = get_blob_by_pathname(pathname)
+        if not b:
+            return None, cfg, None
+        data = fetch_url_bytes(b["url"])
+        if advance:
+            cfg["image_index"] = (idx + 1) % n
+            save_instance_config(instance_id, cfg)
+        return data, cfg, name
+
     images_dir = os.path.join(get_instance_dir(instance_id), "Images")
     images = list_images(images_dir)
     if not images:
-        return None, cfg
+        return None, cfg, None
     n = len(images)
     idx = cfg.get("image_index", 0) % n
     off = int(queue_offset) % n if n else 0
@@ -254,13 +382,27 @@ def get_next_image(instance_id, advance=True, queue_offset=0):
     if advance:
         cfg["image_index"] = (idx + 1) % n
         save_instance_config(instance_id, cfg)
-    return image_path, cfg
+    return image_path, cfg, os.path.basename(image_path)
 
 
 def get_playlist_image(instance_id):
+    """Returns (source_path_or_bytes, basename_or_None)."""
+    if blob_enabled():
+        basenames = list_folder_basenames(instance_id, "Playlist")
+        if not basenames:
+            return None, None
+        name = basenames[0]
+        pathname = _blob_inst_path(instance_id, "Playlist", name)
+        b = get_blob_by_pathname(pathname)
+        if not b:
+            return None, None
+        return fetch_url_bytes(b["url"]), name
     playlist_dir = os.path.join(get_instance_dir(instance_id), "Playlist")
     images = list_images(playlist_dir)
-    return images[0] if images else None
+    if not images:
+        return None, None
+    p = images[0]
+    return p, os.path.basename(p)
 
 
 def _repo_path_for_instance_file(instance_id, subfolder, filename):
@@ -268,11 +410,15 @@ def _repo_path_for_instance_file(instance_id, subfolder, filename):
 
 
 def save_binary_upload(instance_id, subfolder, filename, raw_bytes):
-    """Write file under instance folder; optionally mirror commit to GitHub."""
+    """Write file under instance folder or Blob; optional GitHub mirror (local only)."""
     safe = secure_filename(filename) or "image.bin"
     ext = os.path.splitext(safe)[1].lower()
     if ext not in SUPPORTED_EXT:
         return None, "__skip_bad_ext__"
+    if blob_enabled():
+        pathname = _blob_inst_path(instance_id, subfolder, safe)
+        put_bytes(pathname, raw_bytes, content_type=_content_type_for_ext(ext))
+        return safe, None
     folder = os.path.join(get_instance_dir(instance_id), subfolder)
     os.makedirs(folder, exist_ok=True)
     dest = os.path.join(folder, safe)
@@ -295,39 +441,54 @@ def save_binary_upload(instance_id, subfolder, filename, raw_bytes):
 
 def prepare_carousel(instance_id, advance_index=True, queue_offset=0):
     cfg = load_instance_config(instance_id)
-    source_path, cfg = get_next_image(
+    source, cfg, src_bn = get_next_image(
         instance_id,
         advance=advance_index,
         queue_offset=queue_offset,
     )
-    if not source_path:
-        return None, "No images in Images/ folder"
+    if source is None:
+        return None, "No images in Images/ folder", None
 
-    playlist_path = get_playlist_image(instance_id)
-    if not playlist_path:
-        return None, "No images in Playlist/ folder"
+    playlist_src, _pl_bn = get_playlist_image(instance_id)
+    if not playlist_src:
+        return None, "No images in Playlist/ folder", None
 
-    output_dir = os.path.join(get_instance_dir(instance_id), "Output")
-    base_name = os.path.splitext(os.path.basename(source_path))[0]
+    base_name = os.path.splitext(src_bn or "slide")[0]
 
-    img1 = create_simple_9_16(source_path)
-    img1_path = os.path.join(output_dir, f"{base_name}_slide1.png")
-    img1.save(img1_path)
-
+    img1 = create_simple_9_16(source)
     img2 = create_template(
-        source_path,
+        source,
         title=cfg.get("song_title", "Summer Techno 2026"),
         artist=cfg.get("artist_name", "17Diamonds"),
         blur_amount=cfg.get("blur_amount", 60),
     )
+    img3 = create_simple_9_16(playlist_src)
+
+    if blob_enabled():
+        remote_urls = []
+        paths = []
+        for pil_img, slot in ((img1, 1), (img2, 2), (img3, 3)):
+            fd, path = tempfile.mkstemp(suffix=".png")
+            os.close(fd)
+            pil_img.save(path)
+            paths.append(path)
+            out_name = f"{base_name}_slide{slot}.png"
+            pathname = _blob_inst_path(instance_id, "Output", out_name)
+            with open(path, "rb") as f:
+                raw = f.read()
+            info = put_bytes(pathname, raw, content_type="image/png")
+            remote_urls.append(info["url"])
+        return paths, None, remote_urls
+
+    output_dir = os.path.join(get_instance_dir(instance_id), "Output")
+    os.makedirs(output_dir, exist_ok=True)
+    img1_path = os.path.join(output_dir, f"{base_name}_slide1.png")
     img2_path = os.path.join(output_dir, f"{base_name}_slide2.png")
-    img2.save(img2_path)
-
-    img3 = create_simple_9_16(playlist_path)
     img3_path = os.path.join(output_dir, f"{base_name}_slide3.png")
+    img1.save(img1_path)
+    img2.save(img2_path)
     img3.save(img3_path)
-
-    return [img1_path, img2_path, img3_path], None
+    return [img1_path, img2_path, img3_path], None, None
 
 
 # ---------------------------------------------------------------------------
@@ -335,19 +496,27 @@ def prepare_carousel(instance_id, advance_index=True, queue_offset=0):
 # ---------------------------------------------------------------------------
 
 def do_upload(instance_id, account):
-    paths, err = prepare_carousel(instance_id)
+    paths, err, _remote = prepare_carousel(instance_id)
     if err:
         return {"error": err}
     username = account.get("username", "")
     if not username:
         return {"error": "No username set"}
     cfg = load_instance_config(instance_id)
-    return tiktok_upload(
-        image_paths=paths,
-        user=username,
-        title=cfg.get("default_title", ""),
-        caption=cfg.get("default_caption", ""),
-    )
+    try:
+        return tiktok_upload(
+            image_paths=paths,
+            user=username,
+            title=cfg.get("default_title", ""),
+            caption=cfg.get("default_caption", ""),
+        )
+    finally:
+        if blob_enabled():
+            for p in paths:
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
 
 
 # ---------------------------------------------------------------------------
@@ -514,16 +683,16 @@ def api_update_account(iid, idx):
 @app.route("/api/instances/<iid>/images", methods=["GET"])
 def api_list_images(iid):
     cfg = load_instance_config(iid)
-    inst_dir = get_instance_dir(iid)
-    images = list_images(os.path.join(inst_dir, "Images"))
-    playlist = list_images(os.path.join(inst_dir, "Playlist"))
+    images = list_folder_basenames(iid, "Images")
+    playlist = list_folder_basenames(iid, "Playlist")
     return jsonify({
-        "images_folder": [os.path.basename(p) for p in images],
-        "playlist_folder": [os.path.basename(p) for p in playlist],
+        "images_folder": images,
+        "playlist_folder": playlist,
         "current_index": cfg.get("image_index", 0),
         "total_images": len(images),
         "playlist_count": len(playlist),
         "github_configured": github_enabled(),
+        "blob_configured": blob_enabled(),
     })
 
 
@@ -648,23 +817,29 @@ def api_preview(iid):
     except (TypeError, ValueError):
         queue_offset = 0
 
-    inst_dir = get_instance_dir(iid)
-    images_dir = os.path.join(inst_dir, "Images")
-    queue_list = list_images(images_dir)
-    queue_total = len(queue_list)
+    queue_basenames = list_folder_basenames(iid, "Images")
+    queue_total = len(queue_basenames)
     if queue_total:
         queue_offset %= queue_total
 
-    paths, err = prepare_carousel(iid, advance_index=False, queue_offset=queue_offset)
+    paths, err, remote_urls = prepare_carousel(iid, advance_index=False, queue_offset=queue_offset)
     if err:
         return jsonify({"error": err}), 400
     names = [os.path.basename(p) for p in paths]
-    slide_urls = [f"/instances/{iid}/output/{n}" for n in names]
+    if remote_urls:
+        slide_urls = remote_urls
+        for p in paths:
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+    else:
+        slide_urls = [f"/instances/{iid}/output/{n}" for n in names]
     cfg = load_instance_config(iid)
-    if queue_list:
+    if queue_basenames:
         head = cfg.get("image_index", 0) % queue_total
         pick = (head + queue_offset) % queue_total
-        source_label = os.path.basename(queue_list[pick])
+        source_label = queue_basenames[pick]
     else:
         source_label = ""
     return jsonify({
@@ -806,6 +981,12 @@ def api_scheduler_status(iid):
 
 @app.route("/instances/<iid>/images/<path:filename>")
 def serve_instance_images_file(iid, filename):
+    if blob_enabled():
+        safe = secure_filename(filename) or ""
+        b = get_blob_by_pathname(_blob_inst_path(iid, "Images", safe))
+        if not b:
+            return jsonify({"error": "Not found"}), 404
+        return redirect(b["url"], code=302)
     path = resolve_listed_file(iid, "Images", filename)
     if not path:
         return jsonify({"error": "Not found"}), 404
@@ -815,6 +996,12 @@ def serve_instance_images_file(iid, filename):
 
 @app.route("/instances/<iid>/playlist/<path:filename>")
 def serve_instance_playlist_file(iid, filename):
+    if blob_enabled():
+        safe = secure_filename(filename) or ""
+        b = get_blob_by_pathname(_blob_inst_path(iid, "Playlist", safe))
+        if not b:
+            return jsonify({"error": "Not found"}), 404
+        return redirect(b["url"], code=302)
     path = resolve_listed_file(iid, "Playlist", filename)
     if not path:
         return jsonify({"error": "Not found"}), 404
@@ -824,6 +1011,12 @@ def serve_instance_playlist_file(iid, filename):
 
 @app.route("/instances/<iid>/output/<path:filename>")
 def serve_output(iid, filename):
+    if blob_enabled():
+        safe = secure_filename(filename) or ""
+        b = get_blob_by_pathname(_blob_inst_path(iid, "Output", safe))
+        if not b:
+            return jsonify({"error": "Not found"}), 404
+        return redirect(b["url"], code=302)
     path = resolve_listed_file(iid, "Output", filename)
     if not path:
         return jsonify({"error": "Not found"}), 404

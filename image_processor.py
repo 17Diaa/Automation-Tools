@@ -4,7 +4,16 @@ Takes an input image and adds a media player overlay (blurred background, album 
 """
 
 import os
+from io import BytesIO
+
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
+
+
+def _open_image(source):
+    """Open from filesystem path or raw bytes."""
+    if isinstance(source, bytes):
+        return Image.open(BytesIO(source))
+    return Image.open(source)
 
 
 def get_font(size):
@@ -45,7 +54,7 @@ def create_template(image_path, title="", artist="", blur_amount=60):
     Process an image into a TikTok-style music cover with media player overlay.
 
     Args:
-        image_path: Path to input image
+        image_path: Path to input image, or image bytes
         title: Song title text
         artist: Artist name text
         blur_amount: Blur intensity 0-100 (default 60)
@@ -58,7 +67,7 @@ def create_template(image_path, title="", artist="", blur_amount=60):
     target_ratio = 9 / 16
 
     # --- Background: blurred + darkened ---
-    original = Image.open(image_path).convert("RGB")
+    original = _open_image(image_path).convert("RGB")
     width, height = original.size
 
     if width / height > target_ratio:
@@ -81,7 +90,7 @@ def create_template(image_path, title="", artist="", blur_amount=60):
     final_image = Image.alpha_composite(temp, overlay).convert("RGB")
 
     # --- Album art (square, rounded corners) ---
-    square_img = crop_to_square(Image.open(image_path).convert("RGB"))
+    square_img = crop_to_square(_open_image(image_path).convert("RGB"))
     square_size = int(target_width * 0.7)
     padding = 10
     square_img = square_img.resize((square_size, square_size), Image.LANCZOS)
@@ -157,7 +166,7 @@ def create_template(image_path, title="", artist="", blur_amount=60):
 
 def create_simple_9_16(image_path):
     """Crop and resize image to 9:16 (1080x1920) without any overlay."""
-    original = Image.open(image_path).convert("RGB")
+    original = _open_image(image_path).convert("RGB")
     width, height = original.size
     target_ratio = 9 / 16
 
