@@ -7,7 +7,7 @@ image folders, and output folder.
 Carousel flow per instance:asd
   Slide 1: Original image from instances/<id>/Images/ (cropped 9:16)
   Slide 2: Same image processed through ImageTemplate (media player overlay)
-  Slide 3: Image from instances/<id>/Playlist/ (cropped 9:16)
+  Slide 3: Image from instances/<iad>/Playlist/ (cropped 9:16)
 """
 
 import os
