@@ -974,6 +974,19 @@ def api_upload_post_status():
     return jsonify(out)
 
 
+@app.route("/api/deployment-check", methods=["GET"])
+def api_deployment_check():
+    """Patikrink ar šis deploy mato env (be slaptų reikšmių)."""
+    up = (os.environ.get("UPLOAD_POST_API_KEY") or "").strip().strip('"').strip("'")
+    return jsonify(
+        {
+            "upload_post_configured": bool(up),
+            "blob_configured": blob_enabled(),
+            "on_vercel": bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV")),
+        }
+    )
+
+
 # --- Vercel Cron: upload for ALL instances ---
 
 @app.route("/api/cron", methods=["GET"])
