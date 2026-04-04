@@ -23,12 +23,13 @@ import tempfile
 import threading
 import time
 import uuid
-from flask import Flask, has_request_context, request, jsonify, send_from_directory, redirect
+from flask import Flask, Response, has_request_context, request, jsonify, send_from_directory, redirect
 from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 
 from blob_client import (
     blob_enabled,
+    blob_urls_are_public,
     put_bytes,
     list_blobs,
     delete_blobs,
@@ -520,7 +521,10 @@ def prepare_carousel(instance_id, advance_index=True, queue_offset=0):
             with open(path, "rb") as f:
                 raw = f.read()
             info = put_bytes(pathname, raw, content_type="image/png")
-            remote_urls.append(info["url"])
+            if blob_urls_are_public():
+                remote_urls.append(info.get("url") or f"/instances/{instance_id}/output/{out_name}")
+            else:
+                remote_urls.append(f"/instances/{instance_id}/output/{out_name}")
         return paths, None, remote_urls
 
     output_dir = os.path.join(get_instance_dir(instance_id), "Output")
@@ -1022,14 +1026,27 @@ def api_scheduler_status(iid):
 # Serve instance images (thumbnails in UI) + output slides
 # ---------------------------------------------------------------------------
 
+def _serve_instance_blob_file(iid, subfolder, filename):
+    """Private Blob store: stream bytes via server (token). Public store: 302 to CDN."""
+    safe = secure_filename(os.path.basename(filename)) or ""
+    if not safe:
+        return jsonify({"error": "Not found"}), 404
+    b = get_blob_by_pathname(_blob_inst_path(iid, subfolder, safe))
+    if not b:
+        return jsonify({"error": "Not found"}), 404
+    if blob_urls_are_public():
+        return redirect(b["url"], code=302)
+    body = fetch_url_bytes(b["url"])
+    if not body:
+        return jsonify({"error": "Not found"}), 404
+    ct = _content_type_for_ext(os.path.splitext(safe)[1])
+    return Response(body, mimetype=ct or "application/octet-stream")
+
+
 @app.route("/instances/<iid>/images/<path:filename>")
 def serve_instance_images_file(iid, filename):
     if blob_enabled():
-        safe = secure_filename(filename) or ""
-        b = get_blob_by_pathname(_blob_inst_path(iid, "Images", safe))
-        if not b:
-            return jsonify({"error": "Not found"}), 404
-        return redirect(b["url"], code=302)
+        return _serve_instance_blob_file(iid, "Images", filename)
     path = resolve_listed_file(iid, "Images", filename)
     if not path:
         return jsonify({"error": "Not found"}), 404
@@ -1040,11 +1057,7 @@ def serve_instance_images_file(iid, filename):
 @app.route("/instances/<iid>/playlist/<path:filename>")
 def serve_instance_playlist_file(iid, filename):
     if blob_enabled():
-        safe = secure_filename(filename) or ""
-        b = get_blob_by_pathname(_blob_inst_path(iid, "Playlist", safe))
-        if not b:
-            return jsonify({"error": "Not found"}), 404
-        return redirect(b["url"], code=302)
+        return _serve_instance_blob_file(iid, "Playlist", filename)
     path = resolve_listed_file(iid, "Playlist", filename)
     if not path:
         return jsonify({"error": "Not found"}), 404
@@ -1055,11 +1068,7 @@ def serve_instance_playlist_file(iid, filename):
 @app.route("/instances/<iid>/output/<path:filename>")
 def serve_output(iid, filename):
     if blob_enabled():
-        safe = secure_filename(filename) or ""
-        b = get_blob_by_pathname(_blob_inst_path(iid, "Output", safe))
-        if not b:
-            return jsonify({"error": "Not found"}), 404
-        return redirect(b["url"], code=302)
+        return _serve_instance_blob_file(iid, "Output", filename)
     path = resolve_listed_file(iid, "Output", filename)
     if not path:
         return jsonify({"error": "Not found"}), 404

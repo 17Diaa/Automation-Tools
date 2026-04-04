@@ -1,6 +1,7 @@
 """
 Vercel Blob via HTTP (same contract as @vercel/blob SDK).
-Env: BLOB_READ_WRITE_TOKEN (required). Optional: BLOB_ACCESS=public|private (default public), VERCEL_BLOB_API_URL.
+Env: BLOB_READ_WRITE_TOKEN (required). Optional: BLOB_ACCESS=public|private (default private — matches Vercel „Private“ store).
+      If the store is Public, set BLOB_ACCESS=public for direct CDN URLs + no image proxy.
 Docs: https://vercel.com/docs/storage/vercel-blob/using-blob-sdk
 """
 
@@ -24,8 +25,13 @@ def blob_enabled() -> bool:
 
 
 def _access() -> str:
-    a = (os.environ.get("BLOB_ACCESS") or "public").strip().lower()
-    return a if a in ("public", "private") else "public"
+    a = (os.environ.get("BLOB_ACCESS") or "private").strip().lower()
+    return a if a in ("public", "private") else "private"
+
+
+def blob_urls_are_public() -> bool:
+    """If False, browsers must load blobs via app routes (server proxies with token)."""
+    return _access() == "public"
 
 
 def _headers(**extra: str) -> Dict[str, str]:
