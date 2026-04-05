@@ -5,7 +5,7 @@ image folders, and output folder.
 
 Carousel flow per instance:
   Slide 1: Original image from instances/<id>/Images/ (cropped 9:16)
-  Slide 2: Same image processed through ImageTemplate (media player overlay)
+  Slide 2: Same queue image — either ImageTemplate (media player) or plain 9:16 (config)
   Slide 3: Image from instances/<id>/Playlist/ (cropped 9:16)
 
 On Vercel: set BLOB_READ_WRITE_TOKEN so images + config + cron state live in Blob.
@@ -337,6 +337,7 @@ DEFAULT_INSTANCE_CONFIG = {
     "blur_amount": 60,
     "artist_name": "17Diamonds",
     "song_title": "Summer Techno 2026",
+    "use_media_player_slide": True,
 }
 
 
@@ -552,12 +553,15 @@ def prepare_carousel(instance_id, advance_index=True, queue_offset=0):
     base_name = os.path.splitext(src_bn or "slide")[0]
 
     img1 = create_simple_9_16(source)
-    img2 = create_template(
-        source,
-        title=cfg.get("song_title", "Summer Techno 2026"),
-        artist=cfg.get("artist_name", "17Diamonds"),
-        blur_amount=cfg.get("blur_amount", 60),
-    )
+    if cfg.get("use_media_player_slide", True):
+        img2 = create_template(
+            source,
+            title=cfg.get("song_title", "Summer Techno 2026"),
+            artist=cfg.get("artist_name", "17Diamonds"),
+            blur_amount=cfg.get("blur_amount", 60),
+        )
+    else:
+        img2 = create_simple_9_16(source)
     img3 = create_simple_9_16(playlist_src)
 
     if blob_enabled():
@@ -722,7 +726,7 @@ def api_set_config(iid):
     data = request.json
     cfg = load_instance_config(iid)
     for key in ("upload_interval_minutes", "default_title", "default_caption",
-                "blur_amount", "artist_name", "song_title"):
+                "blur_amount", "artist_name", "song_title", "use_media_player_slide"):
         if key in data:
             cfg[key] = data[key]
     save_instance_config(iid, cfg)

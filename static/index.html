@@ -113,7 +113,14 @@
         <!-- Template Settings -->
         <section class="card">
           <h2>Template Settings</h2>
-          <div class="fields-grid">
+          <div class="field checkbox-field" style="margin-bottom:16px">
+            <label class="checkbox-label">
+              <input type="checkbox" id="use-media-player-slide" checked onchange="syncTemplateFieldsDisabled()">
+              <span>Use media player visual on slide 2 (blurred background, cover art, controls)</span>
+            </label>
+            <p class="field-hint">When off, slide 2 is the same queue photo as slide 1, only cropped to 9:16 (no overlay).</p>
+          </div>
+          <div class="fields-grid" id="template-text-fields">
             <div class="field">
               <label for="artist">Artist Name</label>
               <input type="text" id="artist" placeholder="e.g. 17Diamonds" value="17Diamonds">
@@ -123,7 +130,7 @@
               <input type="text" id="song" placeholder="e.g. Summer Techno 2026" value="Summer Techno 2026">
             </div>
           </div>
-          <div class="field" style="margin-bottom:16px">
+          <div class="field" style="margin-bottom:16px" id="template-blur-field">
             <label for="blur">Blur Amount: <span id="blur-val">60</span>%</label>
             <input type="range" id="blur" min="0" max="100" value="60" oninput="document.getElementById('blur-val').textContent=this.value">
           </div>
@@ -369,23 +376,35 @@
     // ===================== CONFIG =====================
     function iid() { return currentInstance; }
 
+    function syncTemplateFieldsDisabled() {
+      const on = document.getElementById('use-media-player-slide').checked;
+      const ids = ['artist', 'song', 'blur'];
+      ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = !on;
+      });
+    }
+
     async function loadConfig() {
       if (!iid()) return;
       const res = await fetch(`${API}/api/instances/${iid()}/config`);
       const cfg = await res.json();
       document.getElementById('interval').value = cfg.upload_interval_minutes || 60;
+      document.getElementById('use-media-player-slide').checked = cfg.use_media_player_slide !== false;
       document.getElementById('artist').value = cfg.artist_name || '17Diamonds';
       document.getElementById('song').value = cfg.song_title || 'Summer Techno 2026';
       document.getElementById('blur').value = cfg.blur_amount || 60;
       document.getElementById('blur-val').textContent = cfg.blur_amount || 60;
       document.getElementById('post-title').value = cfg.default_title || '';
       document.getElementById('post-caption').value = cfg.default_caption || '';
+      syncTemplateFieldsDisabled();
     }
 
     async function saveSettings() {
       if (!iid()) return;
       const data = {
         upload_interval_minutes: parseInt(document.getElementById('interval').value),
+        use_media_player_slide: document.getElementById('use-media-player-slide').checked,
         artist_name: document.getElementById('artist').value,
         song_title: document.getElementById('song').value,
         blur_amount: parseInt(document.getElementById('blur').value),
