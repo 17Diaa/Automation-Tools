@@ -749,12 +749,35 @@ def api_get_config(iid):
 
 @app.route("/api/instances/<iid>/config", methods=["POST"])
 def api_set_config(iid):
-    data = request.json
+    # force=True: kai kurie proxy / klientai nesiunčia tinkamo Content-Type, kitaip body ignoruojamas.
+    data = request.get_json(force=True, silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "Neteisingas ar tuščias JSON"}), 400
     cfg = load_instance_config(iid)
     for key in ("upload_interval_minutes", "default_title", "default_caption",
                 "blur_amount", "artist_name", "song_title", "use_media_player_slide"):
-        if key in data:
-            cfg[key] = data[key]
+        if key not in data:
+            continue
+        val = data[key]
+        if key == "upload_interval_minutes":
+            try:
+                cfg[key] = max(1, int(val))
+            except (TypeError, ValueError):
+                pass
+        elif key == "blur_amount":
+            try:
+                cfg[key] = max(0, min(100, int(val)))
+            except (TypeError, ValueError):
+                pass
+        elif key == "use_media_player_slide":
+            if isinstance(val, bool):
+                cfg[key] = val
+            else:
+                cfg[key] = str(val).lower() in ("1", "true", "yes", "on")
+        elif key in ("default_title", "default_caption", "artist_name", "song_title"):
+            cfg[key] = "" if val is None else str(val)
+        else:
+            cfg[key] = val
     save_instance_config(iid, cfg)
     return jsonify(cfg)
 

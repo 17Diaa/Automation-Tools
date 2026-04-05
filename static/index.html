@@ -27,7 +27,7 @@
         <input type="password" id="login-pass" placeholder="Password" onkeydown="if(event.key==='Enter')doLogin()">
       </div>
       <div id="login-error" style="color:var(--red);font-size:13px;margin-bottom:12px;display:none"></div>
-      <button class="btn btn-accent" style="width:100%" onclick="doLogin()">Sign In</button>
+      <button type="button" class="btn btn-accent" style="width:100%" onclick="doLogin()">Sign In</button>
     </div>
   </div>
 
@@ -58,7 +58,7 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
             <span>Analytics</span>
           </a>
-          <button class="btn btn-sm btn-outline" onclick="doLogout()" style="margin-left:12px">Logout</button>
+          <button type="button" class="btn btn-sm btn-outline" onclick="doLogout()" style="margin-left:12px">Logout</button>
         </div>
       </div>
     </nav>
@@ -80,7 +80,7 @@
       <div id="no-instances" style="display:none">
         <div class="empty" style="margin-top:60px;padding:40px">
           <p style="font-size:16px;color:var(--text-secondary);margin-bottom:16px">No instances yet</p>
-          <button class="btn btn-accent" onclick="openNewInstanceModal()">Create your first instance</button>
+          <button type="button" class="btn btn-accent" onclick="openNewInstanceModal()">Create your first instance</button>
         </div>
       </div>
 
@@ -88,7 +88,7 @@
         <header>
           <div class="instance-header">
             <span class="instance-name-display" id="instance-name-label"></span>
-            <button class="btn-delete-instance" onclick="deleteCurrentInstance()">Delete Instance</button>
+            <button type="button" class="btn-delete-instance" onclick="deleteCurrentInstance()">Delete Instance</button>
           </div>
           <h1>Carousel Uploader</h1>
           <p class="subtitle">Automated TikTok slideshow posting</p>
@@ -111,8 +111,8 @@
               </div>
             </div>
             <div class="scheduler-buttons">
-              <button id="btn-start" class="btn btn-green" onclick="startScheduler()">Start</button>
-              <button id="btn-stop" class="btn btn-red" onclick="stopScheduler()">Stop</button>
+              <button type="button" id="btn-start" class="btn btn-green" onclick="startScheduler()">Start</button>
+              <button type="button" id="btn-stop" class="btn btn-red" onclick="stopScheduler()">Stop</button>
             </div>
             <div class="status-badge stopped" id="scheduler-status">Stopped</div>
           </div>
@@ -142,12 +142,13 @@
             <label for="blur">Blur Amount: <span id="blur-val">60</span>%</label>
             <input type="range" id="blur" min="0" max="100" value="60" oninput="document.getElementById('blur-val').textContent=this.value">
           </div>
-          <button class="btn btn-accent" onclick="saveSettings()">Save Settings</button>
+          <button type="button" class="btn btn-accent" onclick="saveSettings('template')">Save Settings</button>
         </section>
 
         <!-- Post Settings -->
         <section class="card">
           <h2>Post Settings</h2>
+          <p class="card-lead" style="margin-bottom:14px;font-size:13px;color:var(--text-muted)">Spausk <strong>Save Post Settings</strong> — saugoma tik antraštė ir caption (nekeičia šablono laukų).</p>
           <div class="fields-grid">
             <div class="field">
               <label for="post-title">Post Title</label>
@@ -158,7 +159,7 @@
               <input type="text" id="post-caption" placeholder="Caption text / hashtags">
             </div>
           </div>
-          <button class="btn btn-accent" onclick="saveSettings()">Save Post Settings</button>
+          <button type="button" class="btn btn-accent" onclick="saveSettings('post')">Save Post Settings</button>
         </section>
 
         <!-- Accounts -->
@@ -173,7 +174,7 @@
                 <input type="text" id="new-username" placeholder="managed user profile name">
               </div>
             </div>
-            <button class="btn btn-accent" onclick="addAccount()">Add Account</button>
+            <button type="button" class="btn btn-accent" onclick="addAccount()">Add Account</button>
           </div>
         </section>
 
@@ -200,8 +201,8 @@
             <p class="upload-hint" id="github-hint" style="display:none">On Vercel the server disk does not persist between requests. Add <code>GITHUB_TOKEN</code> and <code>GITHUB_REPO</code> (e.g. <code>owner/repo</code>) in project env — uploads are committed to the repo.</p>
           </div>
           <div class="image-actions">
-            <button class="btn btn-outline" onclick="refreshImages()">Refresh</button>
-            <button class="btn btn-outline" onclick="resetIndex()">Reset Index</button>
+            <button type="button" class="btn btn-outline" onclick="refreshImages()">Refresh</button>
+            <button type="button" class="btn btn-outline" onclick="resetIndex()">Reset Index</button>
           </div>
         </section>
 
@@ -210,9 +211,9 @@
           <h2>Actions</h2>
           <p class="actions-hint">TikTok upload always takes the <strong>next</strong> queue photo and moves the pointer forward (round-robin). Preview cycles through the same queue in order for checking only — it does <strong>not</strong> change which photo uploads next.</p>
           <div class="manual-buttons">
-            <button class="btn btn-purple" onclick="previewCarousel()">Generate Preview</button>
-            <button class="btn btn-outline btn-sm" type="button" onclick="resetPreviewWalk()">Reset preview walk</button>
-            <button class="btn btn-green" onclick="uploadNow()">Upload Now</button>
+            <button type="button" class="btn btn-purple" onclick="previewCarousel()">Generate Preview</button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="resetPreviewWalk()">Reset preview walk</button>
+            <button type="button" class="btn btn-green" onclick="uploadNow()">Upload Now</button>
           </div>
           <p class="preview-offset-label" id="preview-offset-label"></p>
           <div id="preview-slides" class="preview-slides" aria-live="polite"></div>
@@ -231,8 +232,8 @@
         <input type="text" id="new-instance-name" placeholder="e.g. Summer Techno Campaign" onkeydown="if(event.key==='Enter')createInstance()">
       </div>
       <div class="modal-buttons">
-        <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
-        <button class="btn btn-accent" onclick="createInstance()">Create</button>
+        <button type="button" class="btn btn-outline" onclick="closeModal()">Cancel</button>
+        <button type="button" class="btn btn-accent" onclick="createInstance()">Create</button>
       </div>
     </div>
   </div>
@@ -339,7 +340,7 @@
           ${escapeHtml(inst.name)}
         </button>
       `).join('');
-      container.innerHTML = tabs + `<button class="instance-tab-add" onclick="openNewInstanceModal()" title="New instance">+</button>`;
+      container.innerHTML = tabs + `<button type="button" class="instance-tab-add" onclick="openNewInstanceModal()" title="New instance">+</button>`;
     }
 
     async function switchInstance(id) {
@@ -372,10 +373,18 @@
       if (!name) return;
       const res = await fetch(`${API}/api/instances`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({ name }),
       });
-      const data = await res.json();
+      const raw = await res.text();
+      let data = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch (_) {}
+      if (!res.ok || !data.id) {
+        showResult(data.error || `Nepavyko sukurti instancijos (HTTP ${res.status})`, 'error');
+        return;
+      }
       closeModal();
       currentInstance = data.id;
       await loadInstances();
@@ -405,6 +414,13 @@
     // ===================== CONFIG =====================
     function iid() { return currentInstance; }
 
+    function safeIntEl(elementId, fallback) {
+      const el = document.getElementById(elementId);
+      if (!el) return fallback;
+      const n = parseInt(el.value, 10);
+      return Number.isFinite(n) ? n : fallback;
+    }
+
     function syncTemplateFieldsDisabled() {
       const cb = document.getElementById('use-media-player-slide');
       const on = cb ? cb.checked : true;
@@ -415,10 +431,24 @@
       });
     }
 
-    async function loadConfig() {
-      if (!iid()) return;
-      const res = await fetch(`${API}/api/instances/${iid()}/config`);
-      const cfg = await res.json();
+    async function loadConfig(opts) {
+      const quiet = opts && opts.quiet;
+      if (!iid()) return false;
+      const res = await fetch(`${API}/api/instances/${iid()}/config`, {
+        headers: { Accept: 'application/json' },
+      });
+      const text = await res.text();
+      let cfg = {};
+      try {
+        cfg = text ? JSON.parse(text) : {};
+      } catch (_) {
+        if (!quiet) showResult('Nepavyko nuskaityti konfigūracijos (JSON).', 'error');
+        return false;
+      }
+      if (!res.ok) {
+        if (!quiet) showResult(cfg.error || `Konfigūracija: HTTP ${res.status}`, 'error');
+        return false;
+      }
       document.getElementById('interval').value = cfg.upload_interval_minutes || 60;
       const mp = document.getElementById('use-media-player-slide');
       if (mp) mp.checked = cfg.use_media_player_slide !== false;
@@ -429,26 +459,59 @@
       document.getElementById('post-title').value = cfg.default_title || '';
       document.getElementById('post-caption').value = cfg.default_caption || '';
       syncTemplateFieldsDisabled();
+      return true;
     }
 
-    async function saveSettings() {
-      if (!iid()) return;
-      const mp = document.getElementById('use-media-player-slide');
-      const data = {
-        upload_interval_minutes: parseInt(document.getElementById('interval').value),
-        use_media_player_slide: mp ? mp.checked : true,
-        artist_name: document.getElementById('artist').value,
-        song_title: document.getElementById('song').value,
-        blur_amount: parseInt(document.getElementById('blur').value),
-        default_title: document.getElementById('post-title').value,
-        default_caption: document.getElementById('post-caption').value,
-      };
-      await fetch(`${API}/api/instances/${iid()}/config`, {
+    /**
+     * scope: 'template' — interval + media player + artist/song/blur (nekeičia post laukų serveryje)
+     * scope: 'post' — tik default_title / default_caption
+     * scope: 'all' — viskas (paleidžiant schedulerį)
+     */
+    async function saveSettings(scope = 'all') {
+      if (!iid()) return false;
+      const payload = {};
+      if (scope === 'all' || scope === 'template') {
+        payload.upload_interval_minutes = safeIntEl('interval', 60);
+        const mp = document.getElementById('use-media-player-slide');
+        payload.use_media_player_slide = mp ? !!mp.checked : true;
+        const ar = document.getElementById('artist');
+        const so = document.getElementById('song');
+        payload.artist_name = ar ? ar.value : '';
+        payload.song_title = so ? so.value : '';
+        payload.blur_amount = safeIntEl('blur', 60);
+      }
+      if (scope === 'all' || scope === 'post') {
+        const pt = document.getElementById('post-title');
+        const pc = document.getElementById('post-caption');
+        payload.default_title = pt ? pt.value : '';
+        payload.default_caption = pc ? pc.value : '';
+      }
+      showResult('Saugoma…', 'info');
+      const res = await fetch(`${API}/api/instances/${iid()}/config`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify(payload),
       });
-      showResult('Settings saved', 'success');
+      const raw = await res.text();
+      let data = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch (_) {
+        data = { error: raw ? raw.slice(0, 200) : 'Tuščias atsakymas' };
+      }
+      if (!res.ok) {
+        showResult(data.error || `Saugoti nepavyko (HTTP ${res.status})`, 'error');
+        return false;
+      }
+      await loadConfig({ quiet: true });
+      const okMsg =
+        scope === 'post'
+          ? 'Post nustatymai išsaugoti'
+          : scope === 'template'
+            ? 'Šablono ir intervalo nustatymai išsaugoti'
+            : 'Visi nustatymai išsaugoti';
+      showResult(okMsg, 'success');
+      return true;
     }
 
     // ===================== ACCOUNTS =====================
@@ -564,8 +627,21 @@
 
     async function refreshImages() {
       if (!iid()) return;
-      const res = await fetch(`${API}/api/instances/${iid()}/images`);
-      const data = await res.json();
+      const res = await fetch(`${API}/api/instances/${iid()}/images`, {
+        headers: { Accept: 'application/json' },
+      });
+      const raw = await res.text();
+      let data = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch (_) {
+        data = {};
+      }
+      if (!res.ok) {
+        document.getElementById('images-info').innerHTML =
+          `<p class="empty">Nepavyko užkrauti sąrašo: ${escapeHtml(data.error || 'HTTP ' + res.status)}</p>`;
+        return;
+      }
       const gh = document.getElementById('github-hint');
       if (gh) gh.style.display = data.github_configured ? 'none' : 'block';
       const imgs = data.images_folder || [];
@@ -629,7 +705,20 @@
     }
 
     async function resetIndex() {
-      await fetch(`${API}/api/instances/${iid()}/images/reset`, { method: 'POST' });
+      if (!iid()) return;
+      const res = await fetch(`${API}/api/instances/${iid()}/images/reset`, {
+        method: 'POST',
+        headers: { Accept: 'application/json' },
+      });
+      const raw = await res.text();
+      let data = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch (_) {}
+      if (!res.ok) {
+        showResult(data.error || `Reset nepavyko (HTTP ${res.status})`, 'error');
+        return;
+      }
       previewQueueOffset = 0;
       updatePreviewOffsetLabel();
       refreshImages();
@@ -658,8 +747,15 @@
       for (const f of input.files) fd.append('files', f);
       showResult('Uploading...', 'info');
       const res = await fetch(`${API}/api/instances/${iid()}/images/upload`, { method: 'POST', body: fd });
-      const data = await res.json();
+      const raw = await res.text();
+      let data = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch (_) {
+        data = { error: raw ? raw.slice(0, 200) : 'Neteisingas atsakymas' };
+      }
       input.value = '';
+      if (!res.ok) return showResult(data.error || `Įkėlimas nepavyko (HTTP ${res.status})`, 'error');
       if (data.error) return showResult(data.error, 'error');
       let msg = `Saved: ${data.saved.join(', ')}`;
       if (data.github_enabled && !data.github_warnings) msg += ' (GitHub OK)';
@@ -676,8 +772,15 @@
       for (const f of input.files) fd.append('files', f);
       showResult('Uploading...', 'info');
       const res = await fetch(`${API}/api/instances/${iid()}/playlist/upload`, { method: 'POST', body: fd });
-      const data = await res.json();
+      const raw = await res.text();
+      let data = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch (_) {
+        data = { error: raw ? raw.slice(0, 200) : 'Neteisingas atsakymas' };
+      }
       input.value = '';
+      if (!res.ok) return showResult(data.error || `Įkėlimas nepavyko (HTTP ${res.status})`, 'error');
       if (data.error) return showResult(data.error, 'error');
       let msg = `Playlist: ${data.saved.join(', ')}`;
       if (data.github_enabled && !data.github_warnings) msg += ' (GitHub OK)';
@@ -689,8 +792,17 @@
     // ===================== SCHEDULER =====================
     async function checkScheduler() {
       if (!iid()) return;
-      const res = await fetch(`${API}/api/instances/${iid()}/scheduler/status`);
-      const data = await res.json();
+      const res = await fetch(`${API}/api/instances/${iid()}/scheduler/status`, {
+        headers: { Accept: 'application/json' },
+      });
+      const raw = await res.text();
+      let data = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch (_) {
+        data = {};
+      }
+      if (!res.ok) return;
       if (data.background_supported === false) {
         updateSchedulerUI(false, { cronOnly: true });
         return;
@@ -713,9 +825,13 @@
     }
 
     async function startScheduler() {
-      await saveSettings();
+      const saved = await saveSettings('all');
+      if (!saved) return;
       showResult('Įkeliama…', 'info');
-      const res = await fetch(`${API}/api/instances/${iid()}/scheduler/start`, { method: 'POST' });
+      const res = await fetch(`${API}/api/instances/${iid()}/scheduler/start`, {
+        method: 'POST',
+        headers: { Accept: 'application/json' },
+      });
       let data = {};
       try {
         data = await res.json();
@@ -735,8 +851,21 @@
     }
 
     async function stopScheduler() {
-      await fetch(`${API}/api/instances/${iid()}/scheduler/stop`, { method: 'POST' });
+      if (!iid()) return;
+      const res = await fetch(`${API}/api/instances/${iid()}/scheduler/stop`, {
+        method: 'POST',
+        headers: { Accept: 'application/json' },
+      });
       await checkScheduler();
+      if (!res.ok) {
+        const raw = await res.text();
+        let data = {};
+        try {
+          data = raw ? JSON.parse(raw) : {};
+        } catch (_) {}
+        showResult(data.error || `Stop nepavyko (HTTP ${res.status})`, 'error');
+        return;
+      }
       showResult('Scheduler stopped', 'success');
     }
 
@@ -764,15 +893,26 @@
 
     // ===================== ACTIONS =====================
     async function previewCarousel() {
+      if (!iid()) return;
       const strip = document.getElementById('preview-slides');
       strip.innerHTML = '';
       showResult('Generating preview...', 'info');
       const res = await fetch(`${API}/api/instances/${iid()}/preview`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ queue_offset: previewQueueOffset }),
       });
-      const data = await res.json();
+      const raw = await res.text();
+      let data = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch (_) {
+        data = { error: raw ? raw.slice(0, 200) : 'Neteisingas atsakymas' };
+      }
+      if (!res.ok) {
+        showResult(data.error || `Preview nepavyko (HTTP ${res.status})`, 'error');
+        return;
+      }
       if (data.error) {
         showResult(data.error, 'error');
         return;
@@ -799,17 +939,34 @@
     }
 
     async function uploadNow() {
+      if (!iid()) return;
       showResult('Uploading to Upload-Post / TikTok...', 'info');
-      const res = await fetch(`${API}/api/instances/${iid()}/upload`, { method: 'POST' });
-      const data = await res.json();
-      if (data.error) {
+      const res = await fetch(`${API}/api/instances/${iid()}/upload`, {
+        method: 'POST',
+        headers: { Accept: 'application/json' },
+      });
+      const raw = await res.text();
+      let data = null;
+      try {
+        data = raw ? JSON.parse(raw) : null;
+      } catch (_) {
+        data = { error: raw ? raw.slice(0, 200) : 'Neteisingas atsakymas' };
+      }
+      if (!res.ok) {
+        const err = data && data.error ? data.error : `Upload nepavyko (HTTP ${res.status})`;
+        showResult(err, 'error');
+        return;
+      }
+      if (data && data.error) {
         showResult(data.error, 'error');
       } else if (Array.isArray(data)) {
         const hasErr = data.some(r => r.result && r.result.error);
         const text = data.map(formatUploadResultRow).join('\n\n');
         showResult(text + '\n\nThis posts a 3-image carousel (not an MP4). If you see request_id, publishing may take a few minutes.', hasErr ? 'error' : 'success');
-      } else {
+      } else if (data) {
         showResult(JSON.stringify(data, null, 2), 'success');
+      } else {
+        showResult('Tuščias atsakymas iš serverio', 'error');
       }
     }
 
