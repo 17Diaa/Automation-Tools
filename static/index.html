@@ -842,6 +842,7 @@
         return;
       }
       showSchedulerStartResult(data);
+      refreshImages();
       if (data.background_supported === false) {
         await checkScheduler();
         return;
@@ -968,15 +969,20 @@
       } else {
         showResult('Tuščias atsakymas iš serverio', 'error');
       }
+      refreshImages();
     }
 
+    let _showResultTimer = null;
     function showResult(msg, type) {
+      if (_showResultTimer) { clearTimeout(_showResultTimer); _showResultTimer = null; }
       const box = document.getElementById('action-result');
       box.textContent = msg;
       box.className = `result-box ${type}`;
       box.style.display = 'block';
-      const ms = type === 'success' && String(msg).length > 120 ? 12000 : 4000;
-      if (type === 'success') setTimeout(() => { box.style.display = 'none'; }, ms);
+      if (type === 'success') {
+        const ms = String(msg).length > 120 ? 12000 : 4000;
+        _showResultTimer = setTimeout(() => { box.style.display = 'none'; _showResultTimer = null; }, ms);
+      }
     }
   </script>
 </body>

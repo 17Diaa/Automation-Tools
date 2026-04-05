@@ -6,7 +6,8 @@
       "WebSearch",
       "WebFetch(domain:pypi.org)",
       "WebFetch(domain:docs.upload-post.com)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(python -c \":*)"
     ]
   }
 }

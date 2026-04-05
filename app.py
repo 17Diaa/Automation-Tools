@@ -537,7 +537,6 @@ def save_binary_upload(instance_id, subfolder, filename, raw_bytes):
 # ---------------------------------------------------------------------------
 
 def prepare_carousel(instance_id, advance_index=True, queue_offset=0):
-    cfg = load_instance_config(instance_id)
     source, cfg, src_bn = get_next_image(
         instance_id,
         advance=advance_index,
@@ -598,10 +597,13 @@ def prepare_carousel(instance_id, advance_index=True, queue_offset=0):
 # Upload
 # ---------------------------------------------------------------------------
 
-def do_upload(instance_id, account):
-    paths, err, _remote = prepare_carousel(instance_id)
-    if err:
-        return {"error": err}
+def do_upload(instance_id, account, paths=None):
+    """Upload carousel to one account. If paths given, reuse them (caller handles cleanup)."""
+    own_paths = paths is None
+    if own_paths:
+        paths, err, _remote = prepare_carousel(instance_id)
+        if err:
+            return {"error": err}
     username = account.get("username", "")
     if not username:
         return {"error": "No username set"}
@@ -614,7 +616,7 @@ def do_upload(instance_id, account):
             caption=cfg.get("default_caption", ""),
         )
     finally:
-        if blob_enabled():
+        if own_paths and blob_enabled():
             for p in paths:
                 try:
                     os.unlink(p)
@@ -633,23 +635,37 @@ def _scheduler_run_uploads(instance_id):
     """
     One upload pass for all enabled accounts (same as one instance slice of /api/cron).
     Used: immediately on scheduler Start, then on each background loop tick after waiting.
+    Prepares carousel ONCE and uploads the same slides to every enabled account.
     """
     out = []
     try:
         cfg = load_instance_config(instance_id)
     except FileNotFoundError:
         return out
-    for acct in cfg.get("accounts", []):
-        if not acct.get("enabled", True):
-            continue
-        username = acct.get("username", "")
-        try:
-            result = do_upload(instance_id, acct)
-            print(f"[Scheduler:{instance_id}] @{username or '?'}: {result}")
-        except Exception as e:
-            result = {"error": str(e)}
-            print(f"[Scheduler:{instance_id}] Error: {e}")
-        out.append({"account": username, "result": result})
+    accounts = [a for a in cfg.get("accounts", []) if a.get("enabled", True)]
+    if not accounts:
+        return out
+    paths, err, _remote = prepare_carousel(instance_id)
+    if err:
+        print(f"[Scheduler:{instance_id}] Carousel error: {err}")
+        return out
+    try:
+        for acct in accounts:
+            username = acct.get("username", "")
+            try:
+                result = do_upload(instance_id, acct, paths=paths)
+                print(f"[Scheduler:{instance_id}] @{username or '?'}: {result}")
+            except Exception as e:
+                result = {"error": str(e)}
+                print(f"[Scheduler:{instance_id}] Error: {e}")
+            out.append({"account": username, "result": result})
+    finally:
+        if blob_enabled():
+            for p in paths:
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
     return out
 
 
@@ -1048,10 +1064,24 @@ def api_upload(iid):
     accounts = [a for a in cfg.get("accounts", []) if a.get("enabled", True)]
     if not accounts:
         return jsonify({"error": "No enabled accounts"}), 400
+    paths, err, _remote = prepare_carousel(iid)
+    if err:
+        return jsonify({"error": err}), 400
     results = []
-    for acct in accounts:
-        result = do_upload(iid, acct)
-        results.append({"account": acct.get("username", ""), "result": result})
+    try:
+        for acct in accounts:
+            try:
+                result = do_upload(iid, acct, paths=paths)
+            except Exception as e:
+                result = {"error": str(e)}
+            results.append({"account": acct.get("username", ""), "result": result})
+    finally:
+        if blob_enabled():
+            for p in paths:
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
     return jsonify(results)
 
 
@@ -1148,14 +1178,32 @@ def api_cron():
         except FileNotFoundError:
             continue
         accounts = [a for a in cfg.get("accounts", []) if a.get("enabled", True)]
-        for acct in accounts:
-            result = do_upload(iid, acct)
-            all_results.append({
-                "instance": inst["name"],
-                "account": acct.get("username", ""),
-                "result": result,
-            })
-            print(f"[Cron] {inst['name']}/@{acct.get('username','?')}: {result}")
+        if not accounts:
+            continue
+        paths, err, _remote = prepare_carousel(iid)
+        if err:
+            print(f"[Cron] {inst['name']}: carousel error: {err}")
+            all_results.append({"instance": inst["name"], "account": "*", "result": {"error": err}})
+            continue
+        try:
+            for acct in accounts:
+                try:
+                    result = do_upload(iid, acct, paths=paths)
+                except Exception as e:
+                    result = {"error": str(e)}
+                all_results.append({
+                    "instance": inst["name"],
+                    "account": acct.get("username", ""),
+                    "result": result,
+                })
+                print(f"[Cron] {inst['name']}/@{acct.get('username','?')}: {result}")
+        finally:
+            if blob_enabled():
+                for p in paths:
+                    try:
+                        os.unlink(p)
+                    except OSError:
+                        pass
 
     wait_sec = _random_wait_seconds()
     new_next = now + wait_sec
