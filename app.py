@@ -1021,16 +1021,26 @@ def api_cron():
 
     if _CRON_FILE_PERSIST_OK:
         if now < next_run:
+            ws = int(max(0, next_run - now))
+            print(
+                f"[Cron] skip before_next_random_slot: wait ~{ws}s "
+                f"(next_run_epoch={next_run:.0f}, blob_state={blob_enabled()})",
+                flush=True,
+            )
             return jsonify({
                 "executed": False,
                 "skipped": True,
                 "reason": "before_next_random_slot",
                 "next_run_epoch": next_run,
-                "wait_seconds": int(max(0, next_run - now)),
+                "wait_seconds": ws,
             })
     else:
         p = _stateless_cron_probability()
         if random.random() > p:
+            print(
+                f"[Cron] skip stateless_probability_gate: p={p:.4f} (no persistent cron state)",
+                flush=True,
+            )
             return jsonify({
                 "executed": False,
                 "skipped": True,
@@ -1040,6 +1050,8 @@ def api_cron():
             })
 
     gcfg = load_global_config()
+    inst_count = len(gcfg.get("instances", []))
+    print(f"[Cron] run: {inst_count} instance(s), uploading if accounts+assets ok", flush=True)
     all_results = []
     for inst in gcfg.get("instances", []):
         iid = inst["id"]
@@ -1070,6 +1082,7 @@ def api_cron():
     }
     if not all_results:
         payload["message"] = "No enabled accounts in any instance"
+        print("[Cron] executed but no uploads: no enabled accounts in any instance", flush=True)
     return jsonify(payload)
 
 
