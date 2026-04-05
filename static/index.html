@@ -46,6 +46,10 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
             <span>Carousel Uploader</span>
           </a>
+          <a href="https://upload-post.com" target="_blank" rel="noopener noreferrer" class="nav-link nav-link-external" title="Upload-Post: paskyra, API raktas, valdomi profiliai">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            <span>Upload-Post</span>
+          </a>
           <a href="#" class="nav-link disabled">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
             <span>Caption AI</span>
@@ -117,12 +121,12 @@
         <!-- Template Settings -->
         <section class="card">
           <h2>Template Settings</h2>
-          <div class="field checkbox-field" style="margin-bottom:16px">
-            <label class="checkbox-label">
+          <div class="media-player-option" id="media-player-option-block">
+            <h3 class="media-player-option-title">2 skaidrė — media player šablonas</h3>
+            <label class="checkbox-label media-player-checkbox-row">
               <input type="checkbox" id="use-media-player-slide" checked onchange="syncTemplateFieldsDisabled()">
-              <span>Use media player visual on slide 2 (blurred background, cover art, controls)</span>
+              <span><strong>Įjungti</strong> „media player“ vizualą (blur fonas, viršelis, valdikliai) / <strong>Off</strong> = tik paprasta 9:16 apkarpa tos pačios nuotraukos kaip 1 skaidrėje.</span>
             </label>
-            <p class="field-hint">When off, slide 2 is the same queue photo as slide 1, only cropped to 9:16 (no overlay).</p>
           </div>
           <div class="fields-grid" id="template-text-fields">
             <div class="field">
@@ -240,6 +244,15 @@
     /** Preview only: which offset from current upload head (0 = next to upload, 1 = after that, …). */
     let previewQueueOffset = 0;
 
+    function escapeHtml(s) {
+      if (s == null) return '';
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
     // ===================== LOGIN =====================
     function doLogin() {
       const user = document.getElementById('login-user').value;
@@ -321,9 +334,9 @@
     function renderTabs() {
       const container = document.getElementById('instance-tabs');
       const tabs = instances.map(inst => `
-        <button class="instance-tab ${inst.id === currentInstance ? 'active' : ''}" onclick="switchInstance('${inst.id}')">
+        <button type="button" class="instance-tab ${inst.id === currentInstance ? 'active' : ''}" onclick="switchInstance('${inst.id}')">
           <span class="tab-dot"></span>
-          ${inst.name}
+          ${escapeHtml(inst.name)}
         </button>
       `).join('');
       container.innerHTML = tabs + `<button class="instance-tab-add" onclick="openNewInstanceModal()" title="New instance">+</button>`;
@@ -372,7 +385,19 @@
       if (!currentInstance) return;
       const inst = instances.find(i => i.id === currentInstance);
       if (!confirm(`Delete instance "${inst?.name || currentInstance}"? This removes all its images and settings.`)) return;
-      await fetch(`${API}/api/instances/${currentInstance}`, { method: 'DELETE' });
+      let res = await fetch(`${API}/api/instances/${currentInstance}/destroy`, { method: 'POST' });
+      if (!res.ok) {
+        res = await fetch(`${API}/api/instances/${currentInstance}`, { method: 'DELETE' });
+      }
+      if (!res.ok) {
+        let err = 'Nepavyko ištrinti instancijos';
+        try {
+          const d = await res.json();
+          if (d.error) err = d.error;
+        } catch (_) {}
+        showResult(err, 'error');
+        return;
+      }
       currentInstance = null;
       await loadInstances();
     }
@@ -381,7 +406,8 @@
     function iid() { return currentInstance; }
 
     function syncTemplateFieldsDisabled() {
-      const on = document.getElementById('use-media-player-slide').checked;
+      const cb = document.getElementById('use-media-player-slide');
+      const on = cb ? cb.checked : true;
       const ids = ['artist', 'song', 'blur'];
       ids.forEach(id => {
         const el = document.getElementById(id);
@@ -394,7 +420,8 @@
       const res = await fetch(`${API}/api/instances/${iid()}/config`);
       const cfg = await res.json();
       document.getElementById('interval').value = cfg.upload_interval_minutes || 60;
-      document.getElementById('use-media-player-slide').checked = cfg.use_media_player_slide !== false;
+      const mp = document.getElementById('use-media-player-slide');
+      if (mp) mp.checked = cfg.use_media_player_slide !== false;
       document.getElementById('artist').value = cfg.artist_name || '17Diamonds';
       document.getElementById('song').value = cfg.song_title || 'Summer Techno 2026';
       document.getElementById('blur').value = cfg.blur_amount || 60;
@@ -406,9 +433,10 @@
 
     async function saveSettings() {
       if (!iid()) return;
+      const mp = document.getElementById('use-media-player-slide');
       const data = {
         upload_interval_minutes: parseInt(document.getElementById('interval').value),
-        use_media_player_slide: document.getElementById('use-media-player-slide').checked,
+        use_media_player_slide: mp ? mp.checked : true,
         artist_name: document.getElementById('artist').value,
         song_title: document.getElementById('song').value,
         blur_amount: parseInt(document.getElementById('blur').value),
@@ -427,65 +455,95 @@
     async function loadAccounts() {
       if (!iid()) return;
       const res = await fetch(`${API}/api/instances/${iid()}/accounts`);
-      const accounts = await res.json();
+      let accounts;
+      try {
+        accounts = await res.json();
+      } catch (_) {
+        accounts = null;
+      }
       const container = document.getElementById('accounts-list');
+      if (!Array.isArray(accounts)) {
+        container.innerHTML = '<p class="empty">Nepavyko užkrauti paskyrų (API klaida). Patikrink tinklą arba perkrauk puslapį.</p>';
+        return;
+      }
       if (accounts.length === 0) {
         container.innerHTML = '<p class="empty">No accounts added yet</p>';
         return;
       }
-      container.innerHTML = accounts.map((a, i) => `
+      container.innerHTML = accounts.map((a, i) => {
+        const u = a.username || '';
+        const letter = (u[0] || '?').toUpperCase();
+        const safeName = escapeHtml(u);
+        return `
         <div class="account-row">
           <div class="account-info">
-            <div class="account-avatar">${(a.username || '?')[0].toUpperCase()}</div>
-            <span class="account-name">${a.username}</span>
+            <div class="account-avatar">${escapeHtml(letter)}</div>
+            <span class="account-name">${safeName}</span>
             <span class="account-status ${a.enabled ? 'active' : 'disabled'}">${a.enabled ? 'Active' : 'Disabled'}</span>
           </div>
           <div class="account-actions">
-            <button class="btn btn-sm btn-outline" onclick="toggleAccount(${i}, ${!a.enabled})">${a.enabled ? 'Disable' : 'Enable'}</button>
-            <button class="btn btn-sm btn-red" onclick="deleteAccount(${i})">Remove</button>
+            <button type="button" class="btn btn-sm btn-outline" onclick="toggleAccount(${i}, ${a.enabled ? 'false' : 'true'})">${a.enabled ? 'Disable' : 'Enable'}</button>
+            <button type="button" class="btn btn-sm btn-red" onclick="deleteAccount(${i})">Remove</button>
           </div>
-        </div>
-      `).join('');
+        </div>`;
+      }).join('');
     }
 
     async function addAccount() {
       if (!iid()) return;
       const username = document.getElementById('new-username').value.trim();
       if (!username) return showResult('Username is required', 'error');
-      await fetch(`${API}/api/instances/${iid()}/accounts`, {
+      const res = await fetch(`${API}/api/instances/${iid()}/accounts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username }),
       });
+      let data = {};
+      try { data = await res.json(); } catch (_) {}
+      if (!res.ok) {
+        showResult(data.error || 'Nepavyko pridėti paskyros', 'error');
+        return;
+      }
       document.getElementById('new-username').value = '';
       loadAccounts();
       showResult(`Account "${username}" added`, 'success');
     }
 
     async function deleteAccount(idx) {
-      await fetch(`${API}/api/instances/${iid()}/accounts/${idx}`, { method: 'DELETE' });
+      if (!iid()) return;
+      if (!confirm('Pašalinti šią paskyrą iš sąrašo?')) return;
+      const res = await fetch(`${API}/api/instances/${iid()}/accounts/remove`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ index: idx }),
+      });
+      let data = {};
+      try { data = await res.json(); } catch (_) {}
+      if (!res.ok) {
+        showResult(data.error || 'Nepavyko pašalinti', 'error');
+        return;
+      }
       loadAccounts();
+      showResult('Paskyra pašalinta', 'success');
     }
 
     async function toggleAccount(idx, enabled) {
-      await fetch(`${API}/api/instances/${iid()}/accounts/${idx}`, {
-        method: 'PATCH',
+      if (!iid()) return;
+      const res = await fetch(`${API}/api/instances/${iid()}/accounts/set-enabled`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled }),
+        body: JSON.stringify({ index: idx, enabled: !!enabled }),
       });
+      let data = {};
+      try { data = await res.json(); } catch (_) {}
+      if (!res.ok) {
+        showResult(data.error || 'Nepavyko pakeisti būsenos', 'error');
+        return;
+      }
       loadAccounts();
     }
 
     // ===================== IMAGES =====================
-    function escapeHtml(s) {
-      if (s == null) return '';
-      return String(s)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-    }
-
     function buildFileListRows(kind, filenames) {
       const id = iid();
       const sub = kind === 'images' ? 'images' : 'playlist';

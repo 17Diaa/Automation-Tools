@@ -717,6 +717,13 @@ def api_delete_instance(iid):
     return jsonify({"deleted": iid})
 
 
+@app.route("/api/instances/<iid>/destroy", methods=["POST"])
+def api_destroy_instance_post(iid):
+    """POST alternative to DELETE instance (same proxies / hosting quirks)."""
+    delete_instance(iid)
+    return jsonify({"deleted": iid})
+
+
 @app.route("/api/instances/<iid>/rename", methods=["POST"])
 def api_rename_instance(iid):
     name = request.json.get("name", "")
@@ -771,6 +778,44 @@ def api_add_account(iid):
     })
     save_instance_config(iid, cfg)
     return jsonify(cfg["accounts"])
+
+
+@app.route("/api/instances/<iid>/accounts/remove", methods=["POST"])
+def api_remove_account_post(iid):
+    """POST alternative to DELETE (some edge / serverless proxies mishandle DELETE)."""
+    data = request.get_json(silent=True) or {}
+    try:
+        idx = int(data.get("index", data.get("idx", -1)))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid index"}), 400
+    cfg = load_instance_config(iid)
+    accounts = list(cfg.get("accounts", []))
+    if not (0 <= idx < len(accounts)):
+        return jsonify({"error": "Index out of range"}), 400
+    accounts.pop(idx)
+    cfg["accounts"] = accounts
+    save_instance_config(iid, cfg)
+    return jsonify(accounts)
+
+
+@app.route("/api/instances/<iid>/accounts/set-enabled", methods=["POST"])
+def api_set_account_enabled_post(iid):
+    """POST alternative to PATCH for toggling enabled."""
+    data = request.get_json(silent=True) or {}
+    try:
+        idx = int(data.get("index", -1))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid index"}), 400
+    enabled = bool(data.get("enabled", True))
+    cfg = load_instance_config(iid)
+    accounts = list(cfg.get("accounts", []))
+    if not (0 <= idx < len(accounts)):
+        return jsonify({"error": "Index out of range"}), 400
+    accounts[idx] = dict(accounts[idx])
+    accounts[idx]["enabled"] = enabled
+    cfg["accounts"] = accounts
+    save_instance_config(iid, cfg)
+    return jsonify(accounts)
 
 
 @app.route("/api/instances/<iid>/accounts/<int:idx>", methods=["DELETE"])

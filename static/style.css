@@ -355,6 +355,54 @@ input[type="range"]::-webkit-slider-thumb:hover {
 }
 
 /* ========== Scheduler ========== */
+.nav-link-external {
+  color: var(--text-secondary);
+}
+
+.nav-link-external:hover {
+  color: var(--accent-hover);
+}
+
+.media-player-option {
+  margin-bottom: 18px;
+  padding: 16px 18px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-hover);
+  border-radius: var(--radius-sm);
+}
+
+.media-player-option-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent-hover);
+  margin-bottom: 12px;
+}
+
+.media-player-checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--text-primary);
+  text-transform: none;
+  letter-spacing: normal;
+  cursor: pointer;
+  line-height: 1.45;
+}
+
+.media-player-checkbox-row input[type="checkbox"] {
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  margin-top: 2px;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
 .scheduler-random-hint {
   font-size: 13px;
   color: var(--text-muted);
