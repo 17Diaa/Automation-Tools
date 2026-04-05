@@ -977,10 +977,14 @@ def api_upload_post_status():
 @app.route("/api/deployment-check", methods=["GET"])
 def api_deployment_check():
     """Patikrink ar šis deploy mato env (be slaptų reikšmių)."""
-    up = (os.environ.get("UPLOAD_POST_API_KEY") or "").strip().strip('"').strip("'")
+    env_name = "UPLOAD_POST_API_KEY"
+    up = (os.environ.get(env_name) or "").strip().strip('"').strip("'")
+    # Po Vercel env pakeitimo būtinas Redeploy — kitaip funkcija vis dar senoje versijoje be kintamojo.
     return jsonify(
         {
             "upload_post_configured": bool(up),
+            "upload_post_env_name_defined": env_name in os.environ,
+            "upload_post_non_empty_length": len(up),
             "blob_configured": blob_enabled(),
             "on_vercel": bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV")),
         }
