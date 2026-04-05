@@ -189,6 +189,22 @@ header h1 {
   line-height: 1.45;
 }
 
+.scheduler-vercel-banner {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(176, 108, 255, 0.35);
+  background: rgba(124, 92, 252, 0.12);
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.scheduler-vercel-banner code {
+  font-size: 12px;
+  color: var(--accent-hover);
+}
+
 input:disabled,
 textarea:disabled,
 select:disabled {

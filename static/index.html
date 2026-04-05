@@ -93,6 +93,10 @@
         <!-- Scheduler -->
         <section class="card">
           <h2>Scheduler</h2>
+          <p id="scheduler-vercel-hint" class="scheduler-vercel-banner" style="display:none" role="status">
+            <strong>Vercel:</strong> žalias mygtukas <strong>Įkelti dabar</strong> iškart kelia į TikTok (vienas ciklas, kaip cron).
+            <strong>Foninis</strong> scheduler čia neįmanomas — automatiniams intervalams naudokite <strong>Vercel Cron</strong> → <code>/api/cron</code> ir <code>CRON_SECRET</code>.
+          </p>
           <p class="scheduler-random-hint">After each run the app waits a <strong>random</strong> delay (default <strong>15–60</strong> min + extra jitter) so posts are not on a fixed clock. Override with env <code>UPLOAD_RANDOM_MIN_MINUTES</code>, <code>UPLOAD_RANDOM_MAX_MINUTES</code>, <code>UPLOAD_RANDOM_JITTER_SECONDS</code>. Vercel cron should run every 15 min — <code>/api/cron</code> only uploads when the next random slot is due.</p>
           <div class="scheduler-controls">
             <div class="field">
@@ -629,27 +633,74 @@
       if (!iid()) return;
       const res = await fetch(`${API}/api/instances/${iid()}/scheduler/status`);
       const data = await res.json();
+      if (data.background_supported === false) {
+        updateSchedulerUI(false, { cronOnly: true });
+        return;
+      }
       updateSchedulerUI(data.running);
+    }
+
+    function showSchedulerStartResult(data) {
+      const rows = data.immediate_results || data.results || [];
+      const carouselNote = '\n\nThis posts a 3-image carousel (not an MP4). If you see request_id, publishing may take a few minutes.';
+      if (!rows.length) {
+        showResult(data.message || 'Nėra įjungtų paskyrų šiai instancijai.', 'error');
+        return;
+      }
+      const hasErr = rows.some(r => r.result && r.result.error);
+      let body = rows.map(formatUploadResultRow).join('\n\n');
+      if (data.message) body += '\n\n' + data.message;
+      body += carouselNote;
+      showResult(body, hasErr ? 'error' : 'success');
     }
 
     async function startScheduler() {
       await saveSettings();
-      await fetch(`${API}/api/instances/${iid()}/scheduler/start`, { method: 'POST' });
+      showResult('Įkeliama…', 'info');
+      const res = await fetch(`${API}/api/instances/${iid()}/scheduler/start`, { method: 'POST' });
+      let data = {};
+      try {
+        data = await res.json();
+      } catch (_) {}
+      if (!res.ok) {
+        showResult(data.message || data.error || 'Nepavyko', 'error');
+        await checkScheduler();
+        return;
+      }
+      showSchedulerStartResult(data);
+      if (data.background_supported === false) {
+        await checkScheduler();
+        return;
+      }
       updateSchedulerUI(true);
-      showResult('Scheduler started', 'success');
+      await checkScheduler();
     }
 
     async function stopScheduler() {
       await fetch(`${API}/api/instances/${iid()}/scheduler/stop`, { method: 'POST' });
-      updateSchedulerUI(false);
+      await checkScheduler();
       showResult('Scheduler stopped', 'success');
     }
 
-    function updateSchedulerUI(running) {
+    function updateSchedulerUI(running, meta) {
       const badge = document.getElementById('scheduler-status');
+      const hint = document.getElementById('scheduler-vercel-hint');
+      const cronOnly = meta && meta.cronOnly;
+      if (hint) hint.style.display = cronOnly ? 'block' : 'none';
+      if (cronOnly) {
+        badge.textContent = 'Cron + Įkelti dabar';
+        badge.className = 'status-badge stopped';
+        const btnStart = document.getElementById('btn-start');
+        btnStart.disabled = false;
+        btnStart.textContent = 'Įkelti dabar';
+        document.getElementById('btn-stop').disabled = true;
+        return;
+      }
       badge.textContent = running ? 'Running' : 'Stopped';
       badge.className = `status-badge ${running ? 'running' : 'stopped'}`;
-      document.getElementById('btn-start').disabled = running;
+      const btnStart = document.getElementById('btn-start');
+      btnStart.textContent = 'Start';
+      btnStart.disabled = running;
       document.getElementById('btn-stop').disabled = !running;
     }
 

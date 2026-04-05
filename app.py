@@ -629,23 +629,42 @@ def do_upload(instance_id, account):
 schedulers = {}  # instance_id -> {"running": bool, "thread": Thread}
 
 
+def _scheduler_run_uploads(instance_id):
+    """
+    One upload pass for all enabled accounts (same as one instance slice of /api/cron).
+    Used: immediately on scheduler Start, then on each background loop tick after waiting.
+    """
+    out = []
+    try:
+        cfg = load_instance_config(instance_id)
+    except FileNotFoundError:
+        return out
+    for acct in cfg.get("accounts", []):
+        if not acct.get("enabled", True):
+            continue
+        username = acct.get("username", "")
+        try:
+            result = do_upload(instance_id, acct)
+            print(f"[Scheduler:{instance_id}] @{username or '?'}: {result}")
+        except Exception as e:
+            result = {"error": str(e)}
+            print(f"[Scheduler:{instance_id}] Error: {e}")
+        out.append({"account": username, "result": result})
+    return out
+
+
 def scheduler_loop(instance_id):
+    """Wait (randomized) first, then upload — so Start's immediate run is not duplicated."""
     state = schedulers.get(instance_id, {})
     while state.get("running"):
-        cfg = load_instance_config(instance_id)
-        for acct in cfg.get("accounts", []):
-            if not acct.get("enabled", True):
-                continue
-            try:
-                result = do_upload(instance_id, acct)
-                print(f"[Scheduler:{instance_id}] @{acct.get('username','?')}: {result}")
-            except Exception as e:
-                print(f"[Scheduler:{instance_id}] Error: {e}")
         wait_sec = _random_wait_seconds()
         print(f"[Scheduler:{instance_id}] Next batch in ~{wait_sec / 60:.1f} min (randomized)")
         deadline = time.time() + wait_sec
         while time.time() < deadline and state.get("running"):
             time.sleep(1)
+        if not state.get("running"):
+            break
+        _scheduler_run_uploads(instance_id)
 
 
 def start_scheduler(instance_id):
@@ -991,6 +1010,7 @@ def api_deployment_check():
             "upload_post_non_empty_length": len(up),
             "blob_configured": blob_enabled(),
             "on_vercel": bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV")),
+            "background_scheduler_supported": _background_scheduler_supported(),
         }
     )
 
@@ -1090,22 +1110,56 @@ def api_cron():
 # Routes — Scheduler (local)
 # ---------------------------------------------------------------------------
 
+def _background_scheduler_supported():
+    """Vercel serverless ends the process after each request — threads cannot survive."""
+    return not _running_on_vercel()
+
+
 @app.route("/api/instances/<iid>/scheduler/start", methods=["POST"])
 def api_start_scheduler(iid):
+    immediate = _scheduler_run_uploads(iid)
+    if not _background_scheduler_supported():
+        return jsonify(
+            {
+                "status": "run_once",
+                "background_supported": False,
+                "results": immediate,
+                "message": (
+                    "Įkėlimas vykdomas dabar (vienkartinis). Automatikai toliau naudokite Vercel Cron → /api/cron."
+                    if immediate
+                    else "Nėra įjungtų paskyrų šiai instancijai — nieko neįkelta."
+                ),
+            }
+        )
     start_scheduler(iid)
-    return jsonify({"status": "running"})
+    return jsonify(
+        {
+            "status": "running",
+            "background_supported": True,
+            "immediate_results": immediate,
+            "message": (
+                "Įkėlimas paleistas iš karto; fonas tęs po atsitiktinio laukimo."
+                if immediate
+                else "Foninis scheduler paleistas; nėra aktyvių paskyrų šiam įkėlimui."
+            ),
+        }
+    )
 
 
 @app.route("/api/instances/<iid>/scheduler/stop", methods=["POST"])
 def api_stop_scheduler(iid):
+    if not _background_scheduler_supported():
+        return jsonify({"status": "unsupported", "background_supported": False})
     stop_scheduler(iid)
-    return jsonify({"status": "stopped"})
+    return jsonify({"status": "stopped", "background_supported": True})
 
 
 @app.route("/api/instances/<iid>/scheduler/status", methods=["GET"])
 def api_scheduler_status(iid):
+    if not _background_scheduler_supported():
+        return jsonify({"running": False, "background_supported": False})
     running = schedulers.get(iid, {}).get("running", False)
-    return jsonify({"running": running})
+    return jsonify({"running": running, "background_supported": True})
 
 
 # ---------------------------------------------------------------------------
