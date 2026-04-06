@@ -86,7 +86,7 @@
             <strong>Vercel:</strong> žalias mygtukas <strong>Įkelti dabar</strong> iškart kelia į TikTok (vienas ciklas, kaip cron).
             <strong>Foninis</strong> scheduler čia neįmanomas — automatiniams intervalams naudokite <strong>Vercel Cron</strong> → <code>/api/cron</code> ir <code>CRON_SECRET</code>.
           </p>
-          <p class="scheduler-random-hint">After each run the app waits a <strong>random</strong> delay (default <strong>15–60</strong> min + extra jitter) so posts are not on a fixed clock. Override with env <code>UPLOAD_RANDOM_MIN_MINUTES</code>, <code>UPLOAD_RANDOM_MAX_MINUTES</code>, <code>UPLOAD_RANDOM_JITTER_SECONDS</code>. Vercel cron should run every 15 min — <code>/api/cron</code> only uploads when the next random slot is due.</p>
+          <p class="scheduler-random-hint">After each run the app waits a <strong>random</strong> delay (<strong>15–90</strong> min + jitter) so posts look natural. Daily limit: <strong>15 uploads/day</strong> (env <code>UPLOAD_DAILY_LIMIT</code>). Override intervals with <code>UPLOAD_RANDOM_MIN_MINUTES</code>, <code>UPLOAD_RANDOM_MAX_MINUTES</code>. Vercel cron runs every 15 min — <code>/api/cron</code> only uploads when the next random slot is due and daily limit is not reached.</p>
           <div class="scheduler-controls">
             <div class="field">
               <label for="interval">Saved interval (legacy / optional)</label>

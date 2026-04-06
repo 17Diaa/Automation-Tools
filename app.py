@@ -204,13 +204,21 @@ def load_global_config():
 # Randomized upload intervals (anti-fixed-schedule)
 # ---------------------------------------------------------------------------
 
+def _daily_limit():
+    """Max uploads per day (default 15). 0 = unlimited."""
+    try:
+        return max(0, int(os.environ.get("UPLOAD_DAILY_LIMIT", "15")))
+    except (TypeError, ValueError):
+        return 15
+
+
 def _random_wait_seconds():
     """Sleep duration until next upload cycle: uniform between min–max minutes + optional jitter."""
     try:
         min_m = float(os.environ.get("UPLOAD_RANDOM_MIN_MINUTES", "15"))
-        max_m = float(os.environ.get("UPLOAD_RANDOM_MAX_MINUTES", "60"))
+        max_m = float(os.environ.get("UPLOAD_RANDOM_MAX_MINUTES", "90"))
     except ValueError:
-        min_m, max_m = 15.0, 60.0
+        min_m, max_m = 15.0, 90.0
     if max_m < min_m:
         min_m, max_m = max_m, min_m
     base = random.uniform(min_m, max_m) * 60.0
@@ -227,10 +235,10 @@ def _stateless_cron_probability():
     """If cron_state cannot be saved (serverless), run each tick with this probability (~same average rate)."""
     try:
         min_m = float(os.environ.get("UPLOAD_RANDOM_MIN_MINUTES", "15"))
-        max_m = float(os.environ.get("UPLOAD_RANDOM_MAX_MINUTES", "60"))
+        max_m = float(os.environ.get("UPLOAD_RANDOM_MAX_MINUTES", "90"))
         tick = float(os.environ.get("CRON_TICK_MINUTES", "15"))
     except ValueError:
-        min_m, max_m, tick = 15.0, 60.0, 15.0
+        min_m, max_m, tick = 15.0, 90.0, 15.0
     mean = (min_m + max_m) / 2.0
     if mean <= 0:
         return 0.5
@@ -238,25 +246,50 @@ def _stateless_cron_probability():
     return max(0.05, min(0.85, p))
 
 
+def _today_str():
+    """Current date as YYYY-MM-DD for daily counter reset."""
+    import datetime
+    return datetime.date.today().isoformat()
+
+
+def _default_cron_state():
+    return {"next_run_epoch": 0.0, "daily_count": 0, "daily_date": ""}
+
+
 def load_cron_state():
     if blob_enabled():
         data = get_json(BLOB_META_CRON)
         if not data:
-            return {"next_run_epoch": 0.0}
+            return _default_cron_state()
         try:
-            return {"next_run_epoch": float(data.get("next_run_epoch", 0))}
+            st = {
+                "next_run_epoch": float(data.get("next_run_epoch", 0)),
+                "daily_count": int(data.get("daily_count", 0)),
+                "daily_date": str(data.get("daily_date", "")),
+            }
         except (TypeError, ValueError):
-            return {"next_run_epoch": 0.0}
+            return _default_cron_state()
+        # Reset counter if new day
+        if st["daily_date"] != _today_str():
+            st["daily_count"] = 0
+            st["daily_date"] = _today_str()
+        return st
     if not os.path.isfile(CRON_STATE_PATH):
-        return {"next_run_epoch": 0.0}
+        return _default_cron_state()
     try:
         with open(CRON_STATE_PATH, "r") as f:
             data = json.load(f)
-        return {
+        st = {
             "next_run_epoch": float(data.get("next_run_epoch", 0)),
+            "daily_count": int(data.get("daily_count", 0)),
+            "daily_date": str(data.get("daily_date", "")),
         }
+        if st["daily_date"] != _today_str():
+            st["daily_count"] = 0
+            st["daily_date"] = _today_str()
+        return st
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
-        return {"next_run_epoch": 0.0}
+        return _default_cron_state()
 
 
 def _probe_cron_state_writable():
@@ -276,11 +309,13 @@ def _probe_cron_state_writable():
     return _CRON_FILE_PERSIST_OK
 
 
-def save_cron_state(next_run_epoch, last_run_epoch=None):
+def save_cron_state(next_run_epoch, last_run_epoch=None, daily_count=None, daily_date=None):
     global _CRON_FILE_PERSIST_OK
     payload = {"next_run_epoch": float(next_run_epoch)}
     if last_run_epoch is not None:
         payload["last_run_epoch"] = float(last_run_epoch)
+    payload["daily_count"] = int(daily_count or 0)
+    payload["daily_date"] = daily_date or _today_str()
     if blob_enabled():
         try:
             put_json(BLOB_META_CRON, payload)
@@ -749,14 +784,39 @@ def scheduler_loop(instance_id):
     """Wait (randomized) first, then upload — so Start's immediate run is not duplicated."""
     state = schedulers.get(instance_id, {})
     while state.get("running"):
+        # Check daily limit
+        limit = _daily_limit()
+        st = load_cron_state()
+        daily_count = st.get("daily_count", 0)
+        if limit > 0 and daily_count >= limit:
+            print(f"[Scheduler:{instance_id}] Daily limit reached ({daily_count}/{limit}), waiting 10 min before recheck")
+            deadline = time.time() + 600
+            while time.time() < deadline and state.get("running"):
+                time.sleep(1)
+            continue
         wait_sec = _random_wait_seconds()
-        print(f"[Scheduler:{instance_id}] Next batch in ~{wait_sec / 60:.1f} min (randomized)")
+        print(f"[Scheduler:{instance_id}] Next batch in ~{wait_sec / 60:.1f} min (randomized, daily {daily_count}/{limit})")
         deadline = time.time() + wait_sec
         while time.time() < deadline and state.get("running"):
             time.sleep(1)
         if not state.get("running"):
             break
-        _scheduler_run_uploads(instance_id)
+        # Re-check daily limit before uploading
+        st = load_cron_state()
+        daily_count = st.get("daily_count", 0)
+        if limit > 0 and daily_count >= limit:
+            print(f"[Scheduler:{instance_id}] Daily limit reached after wait ({daily_count}/{limit}), skipping")
+            continue
+        results = _scheduler_run_uploads(instance_id)
+        uploads_done = sum(1 for r in results if not (r.get("result") or {}).get("error"))
+        if uploads_done > 0:
+            st = load_cron_state()
+            new_count = st.get("daily_count", 0) + uploads_done
+            save_cron_state(
+                next_run_epoch=time.time() + _random_wait_seconds(),
+                daily_count=new_count,
+                daily_date=_today_str(),
+            )
 
 
 def start_scheduler(instance_id):
@@ -1164,13 +1224,31 @@ def api_cron():
     now = time.time()
     st = load_cron_state()
     next_run = float(st.get("next_run_epoch", 0))
+    daily_count = st.get("daily_count", 0)
+    daily_date = st.get("daily_date", _today_str())
+
+    # --- Daily limit check ---
+    limit = _daily_limit()
+    if limit > 0 and daily_count >= limit:
+        print(
+            f"[Cron] skip daily_limit_reached: {daily_count}/{limit} today ({daily_date})",
+            flush=True,
+        )
+        return jsonify({
+            "executed": False,
+            "skipped": True,
+            "reason": "daily_limit_reached",
+            "daily_count": daily_count,
+            "daily_limit": limit,
+            "daily_date": daily_date,
+        })
 
     if _CRON_FILE_PERSIST_OK:
         if now < next_run:
             ws = int(max(0, next_run - now))
             print(
                 f"[Cron] skip before_next_random_slot: wait ~{ws}s "
-                f"(next_run_epoch={next_run:.0f}, blob_state={blob_enabled()})",
+                f"(next_run_epoch={next_run:.0f}, daily={daily_count}/{limit}, blob_state={blob_enabled()})",
                 flush=True,
             )
             return jsonify({
@@ -1179,6 +1257,8 @@ def api_cron():
                 "reason": "before_next_random_slot",
                 "next_run_epoch": next_run,
                 "wait_seconds": ws,
+                "daily_count": daily_count,
+                "daily_limit": limit,
             })
     else:
         p = _stateless_cron_probability()
@@ -1192,6 +1272,8 @@ def api_cron():
                 "skipped": True,
                 "reason": "stateless_probability_gate",
                 "p": round(p, 4),
+                "daily_count": daily_count,
+                "daily_limit": limit,
                 "hint": "Filesystem not writable — using random chance per cron tick; set CRON_TICK_MINUTES to match Vercel schedule.",
             })
 
@@ -1230,9 +1312,13 @@ def api_cron():
                             except OSError:
                                 pass
 
+    # Count successful uploads (no error) for daily counter
+    uploads_done = sum(1 for r in all_results if not (r.get("result") or {}).get("error"))
+    new_daily_count = daily_count + uploads_done
+
     wait_sec = _random_wait_seconds()
     new_next = now + wait_sec
-    save_cron_state(new_next, last_run_epoch=now)
+    save_cron_state(new_next, last_run_epoch=now, daily_count=new_daily_count, daily_date=_today_str())
 
     payload = {
         "executed": True,
@@ -1240,10 +1326,15 @@ def api_cron():
         "next_run_epoch": new_next,
         "next_in_minutes_approx": round(wait_sec / 60.0, 2),
         "persisted_next_run": _CRON_FILE_PERSIST_OK,
+        "daily_count": new_daily_count,
+        "daily_limit": limit,
+        "daily_remaining": max(0, limit - new_daily_count) if limit > 0 else "unlimited",
     }
     if not all_results:
         payload["message"] = "No enabled accounts or missing carousel assets"
         print("[Cron] executed but no uploads: no accounts or assets", flush=True)
+    else:
+        print(f"[Cron] done: {uploads_done} uploaded, daily {new_daily_count}/{limit}", flush=True)
     return jsonify(payload)
 
 
