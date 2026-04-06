@@ -81,20 +81,13 @@
 
         <!-- Scheduler -->
         <section class="card">
-          <h2>Scheduler</h2>
+          <h2>Auto Upload</h2>
           <p id="scheduler-vercel-hint" class="scheduler-vercel-banner" style="display:none" role="status">
-            <strong>Vercel:</strong> žalias mygtukas <strong>Įkelti dabar</strong> iškart kelia į TikTok (vienas ciklas, kaip cron).
-            <strong>Foninis</strong> scheduler čia neįmanomas — automatiniams intervalams naudokite <strong>Vercel Cron</strong> → <code>/api/cron</code> ir <code>CRON_SECRET</code>.
+            <strong>Vercel:</strong> automatinis uploadinimas vyksta per <strong>Vercel Cron</strong> (<code>/api/cron</code>). Žalias mygtukas iškart įkels vieną kartą.
           </p>
-          <p class="scheduler-random-hint">After each run the app waits a <strong>random</strong> delay (<strong>15–90</strong> min + jitter) so posts look natural. Daily limit: <strong>15 uploads/day</strong> (env <code>UPLOAD_DAILY_LIMIT</code>). Override intervals with <code>UPLOAD_RANDOM_MIN_MINUTES</code>, <code>UPLOAD_RANDOM_MAX_MINUTES</code>. Vercel cron runs every 15 min — <code>/api/cron</code> only uploads when the next random slot is due and daily limit is not reached.</p>
+          <p class="scheduler-random-hint">Paspaudus <strong>Start</strong> sistema automatiškai kels video kas <strong>15–90 min</strong> (random tarpai). Dienos limitas: <strong>15 video/dieną</strong>. Pasiekus limitą — sustoja iki kitos dienos.</p>
           <div class="scheduler-controls">
-            <div class="field">
-              <label for="interval">Saved interval (legacy / optional)</label>
-              <div class="input-group">
-                <input type="number" id="interval" min="1" value="60">
-                <span class="unit">minutes</span>
-              </div>
-            </div>
+            <input type="hidden" id="interval" value="60">
             <div class="scheduler-buttons">
               <button type="button" id="btn-start" class="btn btn-green" onclick="startScheduler()">Start</button>
               <button type="button" id="btn-stop" class="btn btn-red" onclick="stopScheduler()">Stop</button>
