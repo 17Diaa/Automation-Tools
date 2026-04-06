@@ -37,6 +37,7 @@ from blob_client import (
     fetch_url_bytes,
     get_blob_by_pathname,
     get_json,
+    get_json_cached,
     put_json,
 )
 from image_processor import create_template, create_simple_9_16
@@ -348,7 +349,7 @@ def get_instance_config_path(instance_id):
 
 def load_instance_config(instance_id):
     if blob_enabled():
-        data = get_json(_instance_config_blob_path(instance_id))
+        data = get_json_cached(_instance_config_blob_path(instance_id))
         if data is None:
             raise FileNotFoundError(_instance_config_blob_path(instance_id))
         return data

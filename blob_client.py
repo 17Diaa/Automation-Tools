@@ -139,12 +139,44 @@ def get_blob_by_pathname(pathname: str) -> Optional[Dict[str, Any]]:
 
 
 def get_json(pathname: str) -> Optional[Any]:
-    b = get_blob_by_pathname(pathname)
-    if not b:
-        return None
-    return json.loads(fetch_url_bytes(b["url"]).decode("utf-8"))
+    """Read JSON from Blob with retry (handles eventual consistency after overwrite)."""
+    import time as _time
+    for attempt in range(3):
+        b = get_blob_by_pathname(pathname)
+        if not b:
+            if attempt < 2:
+                _time.sleep(0.3)
+                continue
+            return None
+        try:
+            content = fetch_url_bytes(b["url"])
+            if not content:
+                if attempt < 2:
+                    _time.sleep(0.3)
+                    continue
+                return None
+            return json.loads(content.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            if attempt < 2:
+                _time.sleep(0.3)
+                continue
+            return None
+    return None
+
+
+# In-memory cache of the last written JSON per pathname (within one request/process).
+_put_json_cache: Dict[str, Any] = {}
 
 
 def put_json(pathname: str, obj: Any) -> Dict[str, Any]:
     raw = json.dumps(obj, indent=2).encode("utf-8")
-    return put_bytes(pathname, raw, content_type="application/json")
+    result = put_bytes(pathname, raw, content_type="application/json")
+    _put_json_cache[pathname] = obj
+    return result
+
+
+def get_json_cached(pathname: str) -> Optional[Any]:
+    """Return cached version if we wrote it in this process, else read from Blob."""
+    if pathname in _put_json_cache:
+        return _put_json_cache[pathname]
+    return get_json(pathname)

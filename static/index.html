@@ -380,14 +380,7 @@
     }
 
     // ===================== ACCOUNTS =====================
-    async function loadAccounts() {
-      const res = await fetch(`${API}/api/accounts`, { headers: { Accept: 'application/json' } });
-      let accounts;
-      try {
-        accounts = await res.json();
-      } catch (_) {
-        accounts = null;
-      }
+    function renderAccountsList(accounts) {
       const container = document.getElementById('accounts-list');
       if (!Array.isArray(accounts)) {
         container.innerHTML = '<p class="empty">Nepavyko užkrauti paskyrų (API klaida). Patikrink tinklą arba perkrauk puslapį.</p>';
@@ -416,6 +409,17 @@
       }).join('');
     }
 
+    async function loadAccounts() {
+      const res = await fetch(`${API}/api/accounts`, { headers: { Accept: 'application/json' } });
+      let accounts;
+      try {
+        accounts = await res.json();
+      } catch (_) {
+        accounts = null;
+      }
+      renderAccountsList(accounts);
+    }
+
     async function addAccount() {
       const username = document.getElementById('new-username').value.trim();
       if (!username) return showResult('Username is required', 'error');
@@ -431,7 +435,11 @@
         return;
       }
       document.getElementById('new-username').value = '';
-      loadAccounts();
+      if (Array.isArray(data)) {
+        renderAccountsList(data);
+      } else {
+        loadAccounts();
+      }
       showResult(`Account "${username}" added`, 'success');
     }
 
@@ -448,7 +456,7 @@
         showResult(data.error || 'Nepavyko pašalinti', 'error');
         return;
       }
-      loadAccounts();
+      if (Array.isArray(data)) renderAccountsList(data); else loadAccounts();
       showResult('Paskyra pašalinta', 'success');
     }
 
@@ -464,7 +472,7 @@
         showResult(data.error || 'Nepavyko pakeisti būsenos', 'error');
         return;
       }
-      loadAccounts();
+      if (Array.isArray(data)) renderAccountsList(data); else loadAccounts();
     }
 
     // ===================== IMAGES =====================
