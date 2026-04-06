@@ -1,12 +1,13 @@
 """
 17D AutoPilot — Flask backend.
-Multi-instance carousel uploader. Each instance has its own config,
-image folders, and output folder.
+Viena darbo erdvė (instances/default): karuselės įkėlimas.
 
-Carousel flow per instance:
-  Slide 1: Original image from instances/<id>/Images/ (cropped 9:16)
+Carousel flow:
+  Slide 1: Original image from instances/default/Images/ (cropped 9:16)
   Slide 2: Same queue image — either ImageTemplate (media player) or plain 9:16 (config)
-  Slide 3: Image from instances/<id>/Playlist/ (cropped 9:16)
+  Slide 3: Image from instances/default/Playlist/ (cropped 9:16)
+
+Eilėje ir playliste: rotacija taip, kad du iš eilės įkėlimai nenaudotų to paties failo (jei yra bent 2 skirtingi).
 
 On Vercel: set BLOB_READ_WRITE_TOKEN so images + config + cron state live in Blob.
 """
@@ -51,6 +52,9 @@ CRON_STATE_PATH = os.path.join(BASE_DIR, "cron_state.json")
 BLOB_META_GLOBAL = "meta/global_config.json"
 BLOB_META_CRON = "meta/cron_state.json"
 
+# Viena darbo erdvė — be kelių „instance“ UI.
+DEFAULT_INSTANCE_ID = "default"
+
 
 def _instance_config_blob_path(instance_id):
     return f"instances/{instance_id}/config.json"
@@ -74,23 +78,22 @@ SUPPORTED_EXT = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
 
 
 @app.before_request
-def _require_blob_on_vercel():
-    """Vercel serverless FS is read-only without Blob; fail fast with JSON instead of 500 HTML."""
+def _api_guard_and_bootstrap():
+    """Vercel: Blob privalomas; sukuria numatytąją instanciją pirmam API kvietimui."""
     if not request.path.startswith("/api"):
         return None
-    if not _running_on_vercel():
-        return None
-    if blob_enabled():
-        return None
-    return (
-        jsonify(
-            {
-                "error": "Trūksta BLOB_READ_WRITE_TOKEN: Vercel negali rašyti į diską. "
-                "Storage → Blob → prijunk prie projekto ir Redeploy."
-            }
-        ),
-        503,
-    )
+    if _running_on_vercel() and not blob_enabled():
+        return (
+            jsonify(
+                {
+                    "error": "Trūksta BLOB_READ_WRITE_TOKEN: Vercel negali rašyti į diską. "
+                    "Storage → Blob → prijunk prie projekto ir Redeploy."
+                }
+            ),
+            503,
+        )
+    ensure_default_instance()
+    return None
 
 
 @app.errorhandler(Exception)
@@ -334,11 +337,34 @@ DEFAULT_INSTANCE_CONFIG = {
     "default_title": "",
     "default_caption": "",
     "image_index": 0,
+    "playlist_index": 0,
+    "last_posted_image_basename": None,
+    "last_posted_playlist_basename": None,
     "blur_amount": 60,
     "artist_name": "17Diamonds",
     "song_title": "Summer Techno 2026",
     "use_media_player_slide": True,
 }
+
+
+def ensure_default_instance():
+    """Viena konfigūracija: instances/default (Blob arba vietinis diskas)."""
+    try:
+        load_instance_config(DEFAULT_INSTANCE_ID)
+        return
+    except FileNotFoundError:
+        pass
+    if not blob_enabled():
+        inst_dir = get_instance_dir(DEFAULT_INSTANCE_ID)
+        for sub in ["Images", "Playlist", "Output"]:
+            os.makedirs(os.path.join(inst_dir, sub), exist_ok=True)
+    cfg = dict(DEFAULT_INSTANCE_CONFIG)
+    cfg["name"] = "Default"
+    save_instance_config(DEFAULT_INSTANCE_ID, cfg)
+    gcfg = load_global_config()
+    gcfg = dict(gcfg) if isinstance(gcfg, dict) else {}
+    gcfg["instances"] = [{"id": DEFAULT_INSTANCE_ID, "name": "Default"}]
+    save_global_config(gcfg)
 
 
 def create_instance(name):
@@ -435,6 +461,21 @@ def delete_listed_file(instance_id, subfolder, requested_name):
     return True
 
 
+def _carousel_queue_head(cfg, basenames):
+    """Sutampa su get_next_image anti-repeat (eilės „head“ indeksas)."""
+    n = len(basenames)
+    if not n:
+        return 0
+    head = cfg.get("image_index", 0) % n
+    last = cfg.get("last_posted_image_basename")
+    if n > 1 and last:
+        guard = 0
+        while basenames[head] == last and guard < n:
+            head = (head + 1) % n
+            guard += 1
+    return head
+
+
 def get_next_image(instance_id, advance=True, queue_offset=0):
     """
     Pick a carousel source image from Images/.
@@ -443,6 +484,8 @@ def get_next_image(instance_id, advance=True, queue_offset=0):
 
     image_index = which slot is "next" for real uploads (round-robin).
     queue_offset = for preview only: 0 = that next slot, 1 = one after, etc.
+
+    Jei nuotraukų > 1, kita eilėje niekada nesutampa su paskutiniu įkėlimu (last_posted_image_basename).
 
     If advance=True (TikTok upload / cron), increment image_index after reading.
     If advance=False (preview), leave image_index unchanged.
@@ -453,9 +496,9 @@ def get_next_image(instance_id, advance=True, queue_offset=0):
         if not basenames:
             return None, cfg, None
         n = len(basenames)
-        idx = cfg.get("image_index", 0) % n
+        head = _carousel_queue_head(cfg, basenames)
         off = int(queue_offset) % n if n else 0
-        pick = (idx + off) % n
+        pick = (head + off) % n
         name = basenames[pick]
         pathname = _blob_inst_path(instance_id, "Images", name)
         b = get_blob_by_pathname(pathname)
@@ -463,7 +506,8 @@ def get_next_image(instance_id, advance=True, queue_offset=0):
             return None, cfg, None
         data = fetch_url_bytes(b["url"])
         if advance:
-            cfg["image_index"] = (idx + 1) % n
+            cfg["image_index"] = (head + 1) % n
+            cfg["last_posted_image_basename"] = basenames[head]
             save_instance_config(instance_id, cfg)
         return data, cfg, name
 
@@ -471,35 +515,67 @@ def get_next_image(instance_id, advance=True, queue_offset=0):
     images = list_images(images_dir)
     if not images:
         return None, cfg, None
+    basenames = [os.path.basename(x) for x in images]
     n = len(images)
-    idx = cfg.get("image_index", 0) % n
+    head = _carousel_queue_head(cfg, basenames)
     off = int(queue_offset) % n if n else 0
-    pick = (idx + off) % n
+    pick = (head + off) % n
     image_path = images[pick]
     if advance:
-        cfg["image_index"] = (idx + 1) % n
+        cfg["image_index"] = (head + 1) % n
+        cfg["last_posted_image_basename"] = basenames[head]
         save_instance_config(instance_id, cfg)
     return image_path, cfg, os.path.basename(image_path)
 
 
-def get_playlist_image(instance_id):
-    """Returns (source_path_or_bytes, basename_or_None)."""
+def _playlist_queue_head(cfg, basenames):
+    n = len(basenames)
+    if not n:
+        return 0
+    head = cfg.get("playlist_index", 0) % n
+    last = cfg.get("last_posted_playlist_basename")
+    if n > 1 and last:
+        guard = 0
+        while basenames[head] == last and guard < n:
+            head = (head + 1) % n
+            guard += 1
+    return head
+
+
+def get_playlist_image(instance_id, advance=True):
+    """Returns (source_path_or_bytes, basename_or_None). Rotacija su playlist_index; be iš eilės pasikartojimų."""
+    cfg = load_instance_config(instance_id)
     if blob_enabled():
         basenames = list_folder_basenames(instance_id, "Playlist")
         if not basenames:
             return None, None
-        name = basenames[0]
+        n = len(basenames)
+        head = _playlist_queue_head(cfg, basenames)
+        name = basenames[head]
         pathname = _blob_inst_path(instance_id, "Playlist", name)
         b = get_blob_by_pathname(pathname)
         if not b:
             return None, None
-        return fetch_url_bytes(b["url"]), name
+        data = fetch_url_bytes(b["url"])
+        if advance:
+            cfg["playlist_index"] = (head + 1) % n
+            cfg["last_posted_playlist_basename"] = name
+            save_instance_config(instance_id, cfg)
+        return data, name
     playlist_dir = os.path.join(get_instance_dir(instance_id), "Playlist")
     images = list_images(playlist_dir)
     if not images:
         return None, None
-    p = images[0]
-    return p, os.path.basename(p)
+    basenames = [os.path.basename(x) for x in images]
+    n = len(images)
+    head = _playlist_queue_head(cfg, basenames)
+    p = images[head]
+    name = basenames[head]
+    if advance:
+        cfg["playlist_index"] = (head + 1) % n
+        cfg["last_posted_playlist_basename"] = name
+        save_instance_config(instance_id, cfg)
+    return p, name
 
 
 def _repo_path_for_instance_file(instance_id, subfolder, filename):
@@ -545,7 +621,7 @@ def prepare_carousel(instance_id, advance_index=True, queue_offset=0):
     if source is None:
         return None, "No images in Images/ folder", None
 
-    playlist_src, _pl_bn = get_playlist_image(instance_id)
+    playlist_src, _pl_bn = get_playlist_image(instance_id, advance=advance_index)
     if not playlist_src:
         return None, "No images in Playlist/ folder", None
 
@@ -712,64 +788,21 @@ def style():
 
 
 # ---------------------------------------------------------------------------
-# Routes — Instances
+# Routes — Config (viena darbo erdvė: default)
 # ---------------------------------------------------------------------------
 
-@app.route("/api/instances", methods=["GET"])
-def api_list_instances():
-    return jsonify(load_global_config().get("instances", []))
+@app.route("/api/config", methods=["GET"])
+def api_get_config():
+    return jsonify(load_instance_config(DEFAULT_INSTANCE_ID))
 
 
-@app.route("/api/instances", methods=["POST"])
-def api_create_instance():
-    name = request.json.get("name", "New Instance")
-    instance_id = create_instance(name)
-    return jsonify({"id": instance_id, "name": name})
-
-
-@app.route("/api/instances/<iid>", methods=["DELETE"])
-def api_delete_instance(iid):
-    delete_instance(iid)
-    return jsonify({"deleted": iid})
-
-
-@app.route("/api/instances/<iid>/destroy", methods=["POST"])
-def api_destroy_instance_post(iid):
-    """POST alternative to DELETE instance (same proxies / hosting quirks)."""
-    delete_instance(iid)
-    return jsonify({"deleted": iid})
-
-
-@app.route("/api/instances/<iid>/rename", methods=["POST"])
-def api_rename_instance(iid):
-    name = request.json.get("name", "")
-    cfg = load_instance_config(iid)
-    cfg["name"] = name
-    save_instance_config(iid, cfg)
-    gcfg = load_global_config()
-    for inst in gcfg["instances"]:
-        if inst["id"] == iid:
-            inst["name"] = name
-    save_global_config(gcfg)
-    return jsonify({"id": iid, "name": name})
-
-
-# ---------------------------------------------------------------------------
-# Routes — Instance config
-# ---------------------------------------------------------------------------
-
-@app.route("/api/instances/<iid>/config", methods=["GET"])
-def api_get_config(iid):
-    return jsonify(load_instance_config(iid))
-
-
-@app.route("/api/instances/<iid>/config", methods=["POST"])
-def api_set_config(iid):
+@app.route("/api/config", methods=["POST"])
+def api_set_config():
     # force=True: kai kurie proxy / klientai nesiunčia tinkamo Content-Type, kitaip body ignoruojamas.
     data = request.get_json(force=True, silent=True)
     if not isinstance(data, dict):
         return jsonify({"error": "Neteisingas ar tuščias JSON"}), 400
-    cfg = load_instance_config(iid)
+    cfg = load_instance_config(DEFAULT_INSTANCE_ID)
     for key in ("upload_interval_minutes", "default_title", "default_caption",
                 "blur_amount", "artist_name", "song_title", "use_media_player_slide"):
         if key not in data:
@@ -794,7 +827,7 @@ def api_set_config(iid):
             cfg[key] = "" if val is None else str(val)
         else:
             cfg[key] = val
-    save_instance_config(iid, cfg)
+    save_instance_config(DEFAULT_INSTANCE_ID, cfg)
     return jsonify(cfg)
 
 
@@ -802,83 +835,83 @@ def api_set_config(iid):
 # Routes — Accounts
 # ---------------------------------------------------------------------------
 
-@app.route("/api/instances/<iid>/accounts", methods=["GET"])
-def api_get_accounts(iid):
-    return jsonify(load_instance_config(iid).get("accounts", []))
+@app.route("/api/accounts", methods=["GET"])
+def api_get_accounts():
+    return jsonify(load_instance_config(DEFAULT_INSTANCE_ID).get("accounts", []))
 
 
-@app.route("/api/instances/<iid>/accounts", methods=["POST"])
-def api_add_account(iid):
-    data = request.json
-    cfg = load_instance_config(iid)
+@app.route("/api/accounts", methods=["POST"])
+def api_add_account():
+    data = request.get_json(force=True, silent=True) or {}
+    cfg = load_instance_config(DEFAULT_INSTANCE_ID)
     cfg.setdefault("accounts", []).append({
-        "username": data.get("username", ""),
+        "username": (data.get("username") or "").strip(),
         "enabled": True,
     })
-    save_instance_config(iid, cfg)
+    save_instance_config(DEFAULT_INSTANCE_ID, cfg)
     return jsonify(cfg["accounts"])
 
 
-@app.route("/api/instances/<iid>/accounts/remove", methods=["POST"])
-def api_remove_account_post(iid):
+@app.route("/api/accounts/remove", methods=["POST"])
+def api_remove_account_post():
     """POST alternative to DELETE (some edge / serverless proxies mishandle DELETE)."""
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     try:
         idx = int(data.get("index", data.get("idx", -1)))
     except (TypeError, ValueError):
         return jsonify({"error": "Invalid index"}), 400
-    cfg = load_instance_config(iid)
+    cfg = load_instance_config(DEFAULT_INSTANCE_ID)
     accounts = list(cfg.get("accounts", []))
     if not (0 <= idx < len(accounts)):
         return jsonify({"error": "Index out of range"}), 400
     accounts.pop(idx)
     cfg["accounts"] = accounts
-    save_instance_config(iid, cfg)
+    save_instance_config(DEFAULT_INSTANCE_ID, cfg)
     return jsonify(accounts)
 
 
-@app.route("/api/instances/<iid>/accounts/set-enabled", methods=["POST"])
-def api_set_account_enabled_post(iid):
+@app.route("/api/accounts/set-enabled", methods=["POST"])
+def api_set_account_enabled_post():
     """POST alternative to PATCH for toggling enabled."""
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     try:
         idx = int(data.get("index", -1))
     except (TypeError, ValueError):
         return jsonify({"error": "Invalid index"}), 400
     enabled = bool(data.get("enabled", True))
-    cfg = load_instance_config(iid)
+    cfg = load_instance_config(DEFAULT_INSTANCE_ID)
     accounts = list(cfg.get("accounts", []))
     if not (0 <= idx < len(accounts)):
         return jsonify({"error": "Index out of range"}), 400
     accounts[idx] = dict(accounts[idx])
     accounts[idx]["enabled"] = enabled
     cfg["accounts"] = accounts
-    save_instance_config(iid, cfg)
+    save_instance_config(DEFAULT_INSTANCE_ID, cfg)
     return jsonify(accounts)
 
 
-@app.route("/api/instances/<iid>/accounts/<int:idx>", methods=["DELETE"])
-def api_delete_account(iid, idx):
-    cfg = load_instance_config(iid)
+@app.route("/api/accounts/<int:idx>", methods=["DELETE"])
+def api_delete_account(idx):
+    cfg = load_instance_config(DEFAULT_INSTANCE_ID)
     accounts = cfg.get("accounts", [])
     if 0 <= idx < len(accounts):
         accounts.pop(idx)
         cfg["accounts"] = accounts
-        save_instance_config(iid, cfg)
+        save_instance_config(DEFAULT_INSTANCE_ID, cfg)
     return jsonify(cfg["accounts"])
 
 
-@app.route("/api/instances/<iid>/accounts/<int:idx>", methods=["PATCH"])
-def api_update_account(iid, idx):
-    data = request.json
-    cfg = load_instance_config(iid)
+@app.route("/api/accounts/<int:idx>", methods=["PATCH"])
+def api_update_account(idx):
+    data = request.get_json(force=True, silent=True) or {}
+    cfg = load_instance_config(DEFAULT_INSTANCE_ID)
     accounts = cfg.get("accounts", [])
     if 0 <= idx < len(accounts):
         for key in ("username", "enabled"):
             if key in data:
                 accounts[idx][key] = data[key]
         cfg["accounts"] = accounts
-        save_instance_config(iid, cfg)
+        save_instance_config(DEFAULT_INSTANCE_ID, cfg)
     return jsonify(cfg["accounts"])
 
 
@@ -886,15 +919,17 @@ def api_update_account(iid, idx):
 # Routes — Images
 # ---------------------------------------------------------------------------
 
-@app.route("/api/instances/<iid>/images", methods=["GET"])
-def api_list_images(iid):
-    cfg = load_instance_config(iid)
+@app.route("/api/images", methods=["GET"])
+def api_list_images():
+    cfg = load_instance_config(DEFAULT_INSTANCE_ID)
+    iid = DEFAULT_INSTANCE_ID
     images = list_folder_basenames(iid, "Images")
     playlist = list_folder_basenames(iid, "Playlist")
     return jsonify({
         "images_folder": images,
         "playlist_folder": playlist,
         "current_index": cfg.get("image_index", 0),
+        "playlist_index": cfg.get("playlist_index", 0),
         "total_images": len(images),
         "playlist_count": len(playlist),
         "github_configured": github_enabled(),
@@ -902,20 +937,20 @@ def api_list_images(iid):
     })
 
 
-@app.route("/api/instances/<iid>/images/reset", methods=["POST"])
-def api_reset_index(iid):
-    cfg = load_instance_config(iid)
+@app.route("/api/images/reset", methods=["POST"])
+def api_reset_index():
+    cfg = load_instance_config(DEFAULT_INSTANCE_ID)
     cfg["image_index"] = 0
-    save_instance_config(iid, cfg)
+    cfg["playlist_index"] = 0
+    cfg["last_posted_image_basename"] = None
+    cfg["last_posted_playlist_basename"] = None
+    save_instance_config(DEFAULT_INSTANCE_ID, cfg)
     return jsonify({"image_index": 0})
 
 
-@app.route("/api/instances/<iid>/images/upload", methods=["POST"])
-def api_upload_images(iid):
-    try:
-        load_instance_config(iid)
-    except FileNotFoundError:
-        return jsonify({"error": "Unknown instance"}), 404
+@app.route("/api/images/upload", methods=["POST"])
+def api_upload_images():
+    iid = DEFAULT_INSTANCE_ID
     files = request.files.getlist("files")
     if not files:
         return jsonify({"error": "No files (use field name \"files\")"}), 400
@@ -945,13 +980,10 @@ def api_upload_images(iid):
     })
 
 
-@app.route("/api/instances/<iid>/images/delete-one", methods=["POST"])
-def api_delete_one_image(iid):
-    try:
-        load_instance_config(iid)
-    except FileNotFoundError:
-        return jsonify({"error": "Unknown instance"}), 404
-    data = request.get_json(silent=True) or {}
+@app.route("/api/images/delete-one", methods=["POST"])
+def api_delete_one_image():
+    iid = DEFAULT_INSTANCE_ID
+    data = request.get_json(force=True, silent=True) or {}
     name = (data.get("filename") or "").strip()
     if not name:
         return jsonify({"error": "filename required"}), 400
@@ -960,12 +992,9 @@ def api_delete_one_image(iid):
     return jsonify({"deleted": os.path.basename(name)})
 
 
-@app.route("/api/instances/<iid>/playlist/upload", methods=["POST"])
-def api_upload_playlist(iid):
-    try:
-        load_instance_config(iid)
-    except FileNotFoundError:
-        return jsonify({"error": "Unknown instance"}), 404
+@app.route("/api/playlist/upload", methods=["POST"])
+def api_upload_playlist():
+    iid = DEFAULT_INSTANCE_ID
     files = request.files.getlist("files")
     if not files:
         return jsonify({"error": "No files (use field name \"files\")"}), 400
@@ -995,13 +1024,10 @@ def api_upload_playlist(iid):
     })
 
 
-@app.route("/api/instances/<iid>/playlist/delete-one", methods=["POST"])
-def api_delete_one_playlist(iid):
-    try:
-        load_instance_config(iid)
-    except FileNotFoundError:
-        return jsonify({"error": "Unknown instance"}), 404
-    data = request.get_json(silent=True) or {}
+@app.route("/api/playlist/delete-one", methods=["POST"])
+def api_delete_one_playlist():
+    iid = DEFAULT_INSTANCE_ID
+    data = request.get_json(force=True, silent=True) or {}
     name = (data.get("filename") or "").strip()
     if not name:
         return jsonify({"error": "filename required"}), 400
@@ -1014,15 +1040,17 @@ def api_delete_one_playlist(iid):
 # Routes — Preview / Upload
 # ---------------------------------------------------------------------------
 
-@app.route("/api/instances/<iid>/preview", methods=["POST"])
-def api_preview(iid):
+@app.route("/api/preview", methods=["POST"])
+def api_preview():
+    iid = DEFAULT_INSTANCE_ID
     # Preview does not advance image_index; queue_offset rotates which queue item you see.
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     try:
         queue_offset = int(data.get("queue_offset", 0))
     except (TypeError, ValueError):
         queue_offset = 0
 
+    cfg = load_instance_config(iid)
     queue_basenames = list_folder_basenames(iid, "Images")
     queue_total = len(queue_basenames)
     if queue_total:
@@ -1041,9 +1069,8 @@ def api_preview(iid):
                 pass
     else:
         slide_urls = [f"/instances/{iid}/output/{n}" for n in names]
-    cfg = load_instance_config(iid)
     if queue_basenames:
-        head = cfg.get("image_index", 0) % queue_total
+        head = _carousel_queue_head(cfg, queue_basenames)
         pick = (head + queue_offset) % queue_total
         source_label = queue_basenames[pick]
     else:
@@ -1058,8 +1085,9 @@ def api_preview(iid):
     })
 
 
-@app.route("/api/instances/<iid>/upload", methods=["POST"])
-def api_upload(iid):
+@app.route("/api/upload", methods=["POST"])
+def api_upload():
+    iid = DEFAULT_INSTANCE_ID
     cfg = load_instance_config(iid)
     accounts = [a for a in cfg.get("accounts", []) if a.get("enabled", True)]
     if not accounts:
@@ -1113,7 +1141,7 @@ def api_deployment_check():
     )
 
 
-# --- Vercel Cron: upload for ALL instances ---
+# --- Vercel Cron: viena darbo erdvė (default) ---
 
 @app.route("/api/cron", methods=["GET"])
 def api_cron():
@@ -1167,43 +1195,40 @@ def api_cron():
                 "hint": "Filesystem not writable — using random chance per cron tick; set CRON_TICK_MINUTES to match Vercel schedule.",
             })
 
-    gcfg = load_global_config()
-    inst_count = len(gcfg.get("instances", []))
-    print(f"[Cron] run: {inst_count} instance(s), uploading if accounts+assets ok", flush=True)
+    iid = DEFAULT_INSTANCE_ID
+    print(f"[Cron] run: workspace {iid}, uploading if accounts+assets ok", flush=True)
     all_results = []
-    for inst in gcfg.get("instances", []):
-        iid = inst["id"]
-        try:
-            cfg = load_instance_config(iid)
-        except FileNotFoundError:
-            continue
+    try:
+        cfg = load_instance_config(iid)
+    except FileNotFoundError:
+        cfg = None
+    if cfg:
         accounts = [a for a in cfg.get("accounts", []) if a.get("enabled", True)]
-        if not accounts:
-            continue
-        paths, err, _remote = prepare_carousel(iid)
-        if err:
-            print(f"[Cron] {inst['name']}: carousel error: {err}")
-            all_results.append({"instance": inst["name"], "account": "*", "result": {"error": err}})
-            continue
-        try:
-            for acct in accounts:
+        if accounts:
+            paths, err, _remote = prepare_carousel(iid)
+            if err:
+                print(f"[Cron] carousel error: {err}")
+                all_results.append({"instance": "default", "account": "*", "result": {"error": err}})
+            else:
                 try:
-                    result = do_upload(iid, acct, paths=paths)
-                except Exception as e:
-                    result = {"error": str(e)}
-                all_results.append({
-                    "instance": inst["name"],
-                    "account": acct.get("username", ""),
-                    "result": result,
-                })
-                print(f"[Cron] {inst['name']}/@{acct.get('username','?')}: {result}")
-        finally:
-            if blob_enabled():
-                for p in paths:
-                    try:
-                        os.unlink(p)
-                    except OSError:
-                        pass
+                    for acct in accounts:
+                        try:
+                            result = do_upload(iid, acct, paths=paths)
+                        except Exception as e:
+                            result = {"error": str(e)}
+                        all_results.append({
+                            "instance": "default",
+                            "account": acct.get("username", ""),
+                            "result": result,
+                        })
+                        print(f"[Cron] @{acct.get('username','?')}: {result}")
+                finally:
+                    if blob_enabled():
+                        for p in paths:
+                            try:
+                                os.unlink(p)
+                            except OSError:
+                                pass
 
     wait_sec = _random_wait_seconds()
     new_next = now + wait_sec
@@ -1217,8 +1242,8 @@ def api_cron():
         "persisted_next_run": _CRON_FILE_PERSIST_OK,
     }
     if not all_results:
-        payload["message"] = "No enabled accounts in any instance"
-        print("[Cron] executed but no uploads: no enabled accounts in any instance", flush=True)
+        payload["message"] = "No enabled accounts or missing carousel assets"
+        print("[Cron] executed but no uploads: no accounts or assets", flush=True)
     return jsonify(payload)
 
 
@@ -1231,8 +1256,9 @@ def _background_scheduler_supported():
     return not _running_on_vercel()
 
 
-@app.route("/api/instances/<iid>/scheduler/start", methods=["POST"])
-def api_start_scheduler(iid):
+@app.route("/api/scheduler/start", methods=["POST"])
+def api_start_scheduler():
+    iid = DEFAULT_INSTANCE_ID
     immediate = _scheduler_run_uploads(iid)
     if not _background_scheduler_supported():
         return jsonify(
@@ -1243,7 +1269,7 @@ def api_start_scheduler(iid):
                 "message": (
                     "Įkėlimas vykdomas dabar (vienkartinis). Automatikai toliau naudokite Vercel Cron → /api/cron."
                     if immediate
-                    else "Nėra įjungtų paskyrų šiai instancijai — nieko neįkelta."
+                    else "Nėra įjungtų paskyrų — nieko neįkelta."
                 ),
             }
         )
@@ -1262,16 +1288,18 @@ def api_start_scheduler(iid):
     )
 
 
-@app.route("/api/instances/<iid>/scheduler/stop", methods=["POST"])
-def api_stop_scheduler(iid):
+@app.route("/api/scheduler/stop", methods=["POST"])
+def api_stop_scheduler():
+    iid = DEFAULT_INSTANCE_ID
     if not _background_scheduler_supported():
         return jsonify({"status": "unsupported", "background_supported": False})
     stop_scheduler(iid)
     return jsonify({"status": "stopped", "background_supported": True})
 
 
-@app.route("/api/instances/<iid>/scheduler/status", methods=["GET"])
-def api_scheduler_status(iid):
+@app.route("/api/scheduler/status", methods=["GET"])
+def api_scheduler_status():
+    iid = DEFAULT_INSTANCE_ID
     if not _background_scheduler_supported():
         return jsonify({"running": False, "background_supported": False})
     running = schedulers.get(iid, {}).get("running", False)

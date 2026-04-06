@@ -63,33 +63,18 @@
       </div>
     </nav>
 
-    <!-- Instance tabs -->
-    <div class="instance-bar">
-      <div class="instance-inner" id="instance-tabs"></div>
-    </div>
-
     <!-- Main content -->
     <div class="container" id="main-content">
       <div id="api-load-error" class="card" style="display:none;margin-top:24px">
         <h2>API nepasiekiama</h2>
-        <p style="color:var(--text-secondary);margin-bottom:12px">Nepavyko užkrauti <code>/api/instances</code>. Dažniausiai tai Vercel funkcijos klaida (500), neteisingi env arba Blob klaida.</p>
+        <p style="color:var(--text-secondary);margin-bottom:12px">Nepavyko užkrauti <code>/api/config</code>. Dažniausiai tai Vercel funkcijos klaida (500), neteisingi env arba Blob klaida.</p>
         <p style="font-size:13px;color:var(--text-muted)">Atidaryk naršyklėje <strong>F12 → Console</strong> ir Vercel <strong>Deployments → Functions → Logs</strong>.</p>
         <pre id="api-load-error-detail" style="margin-top:16px;padding:12px;background:var(--bg-input);border-radius:8px;overflow:auto;font-size:12px"></pre>
-        <button type="button" class="btn btn-outline" style="margin-top:16px" onclick="loadInstances()">Bandyti dar kartą</button>
-      </div>
-      <div id="no-instances" style="display:none">
-        <div class="empty" style="margin-top:60px;padding:40px">
-          <p style="font-size:16px;color:var(--text-secondary);margin-bottom:16px">No instances yet</p>
-          <button type="button" class="btn btn-accent" onclick="openNewInstanceModal()">Create your first instance</button>
-        </div>
+        <button type="button" class="btn btn-outline" style="margin-top:16px" onclick="bootstrapApp()">Bandyti dar kartą</button>
       </div>
 
       <div id="instance-content" style="display:none">
         <header>
-          <div class="instance-header">
-            <span class="instance-name-display" id="instance-name-label"></span>
-            <button type="button" class="btn-delete-instance" onclick="deleteCurrentInstance()">Delete Instance</button>
-          </div>
           <h1>Carousel Uploader</h1>
           <p class="subtitle">Automated TikTok slideshow posting</p>
         </header>
@@ -181,7 +166,7 @@
         <!-- Images Status -->
         <section class="card">
           <h2>Images</h2>
-          <p class="card-lead">Locally files are stored under <code>instances/&lt;id&gt;/Images</code> and <code>…/Playlist</code>. Upload or remove files here.</p>
+          <p class="card-lead">Failai saugomi <code>instances/default/Images</code> ir <code>instances/default/Playlist</code> (arba Blob). Galite pasirinkti kelis failus vienu metu.</p>
           <div class="images-info" id="images-info">Loading...</div>
           <div class="upload-rows">
             <div class="upload-block">
@@ -209,7 +194,7 @@
         <!-- Manual Actions -->
         <section class="card">
           <h2>Actions</h2>
-          <p class="actions-hint">TikTok upload always takes the <strong>next</strong> queue photo and moves the pointer forward (round-robin). Preview cycles through the same queue in order for checking only — it does <strong>not</strong> change which photo uploads next.</p>
+          <p class="actions-hint">Įkėlimas ima <strong>sekantį</strong> eilės ir playlisto vaizdą; iš eilės nekartojamas tas pats failas (jei yra bent 2 skirtingi). Peržiūra tik parodo — <strong>nekeičia</strong> kito įkėlimo eilės.</p>
           <div class="manual-buttons">
             <button type="button" class="btn btn-purple" onclick="previewCarousel()">Generate Preview</button>
             <button type="button" class="btn btn-outline btn-sm" onclick="resetPreviewWalk()">Reset preview walk</button>
@@ -223,25 +208,9 @@
     </div>
   </div>
 
-  <!-- ===================== NEW INSTANCE MODAL ===================== -->
-  <div class="modal-overlay" id="new-instance-modal">
-    <div class="modal">
-      <h2>New Instance</h2>
-      <div class="field">
-        <label for="new-instance-name">Instance Name</label>
-        <input type="text" id="new-instance-name" placeholder="e.g. Summer Techno Campaign" onkeydown="if(event.key==='Enter')createInstance()">
-      </div>
-      <div class="modal-buttons">
-        <button type="button" class="btn btn-outline" onclick="closeModal()">Cancel</button>
-        <button type="button" class="btn btn-accent" onclick="createInstance()">Create</button>
-      </div>
-    </div>
-  </div>
-
   <script>
     const API = '';
-    let currentInstance = null;
-    let instances = [];
+    const IID = 'default';
     /** Preview only: which offset from current upload head (0 = next to upload, 1 = after that, …). */
     let previewQueueOffset = 0;
 
@@ -276,7 +245,7 @@
     function showApp() {
       document.getElementById('login-page').style.display = 'none';
       document.getElementById('app').style.display = 'block';
-      loadInstances();
+      bootstrapApp();
     }
 
     // Check auth on load
@@ -284,16 +253,14 @@
       showApp();
     }
 
-    // ===================== INSTANCES =====================
-    async function loadInstances() {
+    async function bootstrapApp() {
       const errBox = document.getElementById('api-load-error');
       const errDetail = document.getElementById('api-load-error-detail');
-      const noInst = document.getElementById('no-instances');
       const instContent = document.getElementById('instance-content');
       errBox.style.display = 'none';
       errDetail.textContent = '';
       try {
-        const res = await fetch(`${API}/api/instances`);
+        const res = await fetch(`${API}/api/config`, { headers: { Accept: 'application/json' } });
         const raw = await res.text();
         let data;
         try {
@@ -304,115 +271,22 @@
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}: ${typeof data === 'object' && data.error ? data.error : raw.slice(0, 200)}`);
         }
-        if (!Array.isArray(data)) {
-          throw new Error((data && data.error) || 'Netikėtas API atsakymas (ne sąrašas)');
-        }
-        instances = data;
-        renderTabs();
-
-        if (instances.length === 0) {
-          noInst.style.display = 'block';
-          instContent.style.display = 'none';
-        } else {
-          noInst.style.display = 'none';
-          if (!currentInstance || !instances.find(i => i.id === currentInstance)) {
-            switchInstance(instances[0].id);
-          } else {
-            switchInstance(currentInstance);
-          }
-        }
+        instContent.style.display = 'block';
+        previewQueueOffset = 0;
+        updatePreviewOffsetLabel();
+        loadConfig();
+        loadAccounts();
+        refreshImages();
+        checkScheduler();
       } catch (e) {
         console.error(e);
-        instances = [];
-        document.getElementById('instance-tabs').innerHTML = '';
-        noInst.style.display = 'none';
         instContent.style.display = 'none';
         errDetail.textContent = e.message || String(e);
         errBox.style.display = 'block';
       }
     }
 
-    function renderTabs() {
-      const container = document.getElementById('instance-tabs');
-      const tabs = instances.map(inst => `
-        <button type="button" class="instance-tab ${inst.id === currentInstance ? 'active' : ''}" onclick="switchInstance('${inst.id}')">
-          <span class="tab-dot"></span>
-          ${escapeHtml(inst.name)}
-        </button>
-      `).join('');
-      container.innerHTML = tabs + `<button type="button" class="instance-tab-add" onclick="openNewInstanceModal()" title="New instance">+</button>`;
-    }
-
-    async function switchInstance(id) {
-      currentInstance = id;
-      previewQueueOffset = 0;
-      updatePreviewOffsetLabel();
-      const inst = instances.find(i => i.id === id);
-      document.getElementById('instance-name-label').textContent = `Instance: ${inst ? inst.name : id}`;
-      document.getElementById('instance-content').style.display = 'block';
-      document.getElementById('no-instances').style.display = 'none';
-      renderTabs();
-      loadConfig();
-      loadAccounts();
-      refreshImages();
-      checkScheduler();
-    }
-
-    function openNewInstanceModal() {
-      document.getElementById('new-instance-modal').classList.add('open');
-      document.getElementById('new-instance-name').value = '';
-      document.getElementById('new-instance-name').focus();
-    }
-
-    function closeModal() {
-      document.getElementById('new-instance-modal').classList.remove('open');
-    }
-
-    async function createInstance() {
-      const name = document.getElementById('new-instance-name').value.trim();
-      if (!name) return;
-      const res = await fetch(`${API}/api/instances`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({ name }),
-      });
-      const raw = await res.text();
-      let data = {};
-      try {
-        data = raw ? JSON.parse(raw) : {};
-      } catch (_) {}
-      if (!res.ok || !data.id) {
-        showResult(data.error || `Nepavyko sukurti instancijos (HTTP ${res.status})`, 'error');
-        return;
-      }
-      closeModal();
-      currentInstance = data.id;
-      await loadInstances();
-    }
-
-    async function deleteCurrentInstance() {
-      if (!currentInstance) return;
-      const inst = instances.find(i => i.id === currentInstance);
-      if (!confirm(`Delete instance "${inst?.name || currentInstance}"? This removes all its images and settings.`)) return;
-      let res = await fetch(`${API}/api/instances/${currentInstance}/destroy`, { method: 'POST' });
-      if (!res.ok) {
-        res = await fetch(`${API}/api/instances/${currentInstance}`, { method: 'DELETE' });
-      }
-      if (!res.ok) {
-        let err = 'Nepavyko ištrinti instancijos';
-        try {
-          const d = await res.json();
-          if (d.error) err = d.error;
-        } catch (_) {}
-        showResult(err, 'error');
-        return;
-      }
-      currentInstance = null;
-      await loadInstances();
-    }
-
     // ===================== CONFIG =====================
-    function iid() { return currentInstance; }
 
     function safeIntEl(elementId, fallback) {
       const el = document.getElementById(elementId);
@@ -433,8 +307,7 @@
 
     async function loadConfig(opts) {
       const quiet = opts && opts.quiet;
-      if (!iid()) return false;
-      const res = await fetch(`${API}/api/instances/${iid()}/config`, {
+      const res = await fetch(`${API}/api/config`, {
         headers: { Accept: 'application/json' },
       });
       const text = await res.text();
@@ -468,7 +341,6 @@
      * scope: 'all' — viskas (paleidžiant schedulerį)
      */
     async function saveSettings(scope = 'all') {
-      if (!iid()) return false;
       const payload = {};
       if (scope === 'all' || scope === 'template') {
         payload.upload_interval_minutes = safeIntEl('interval', 60);
@@ -487,7 +359,7 @@
         payload.default_caption = pc ? pc.value : '';
       }
       showResult('Saugoma…', 'info');
-      const res = await fetch(`${API}/api/instances/${iid()}/config`, {
+      const res = await fetch(`${API}/api/config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify(payload),
@@ -516,8 +388,7 @@
 
     // ===================== ACCOUNTS =====================
     async function loadAccounts() {
-      if (!iid()) return;
-      const res = await fetch(`${API}/api/instances/${iid()}/accounts`);
+      const res = await fetch(`${API}/api/accounts`, { headers: { Accept: 'application/json' } });
       let accounts;
       try {
         accounts = await res.json();
@@ -553,12 +424,11 @@
     }
 
     async function addAccount() {
-      if (!iid()) return;
       const username = document.getElementById('new-username').value.trim();
       if (!username) return showResult('Username is required', 'error');
-      const res = await fetch(`${API}/api/instances/${iid()}/accounts`, {
+      const res = await fetch(`${API}/api/accounts`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({ username }),
       });
       let data = {};
@@ -573,11 +443,10 @@
     }
 
     async function deleteAccount(idx) {
-      if (!iid()) return;
       if (!confirm('Pašalinti šią paskyrą iš sąrašo?')) return;
-      const res = await fetch(`${API}/api/instances/${iid()}/accounts/remove`, {
+      const res = await fetch(`${API}/api/accounts/remove`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({ index: idx }),
       });
       let data = {};
@@ -591,10 +460,9 @@
     }
 
     async function toggleAccount(idx, enabled) {
-      if (!iid()) return;
-      const res = await fetch(`${API}/api/instances/${iid()}/accounts/set-enabled`, {
+      const res = await fetch(`${API}/api/accounts/set-enabled`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({ index: idx, enabled: !!enabled }),
       });
       let data = {};
@@ -608,7 +476,7 @@
 
     // ===================== IMAGES =====================
     function buildFileListRows(kind, filenames) {
-      const id = iid();
+      const id = IID;
       const sub = kind === 'images' ? 'images' : 'playlist';
       if (!filenames || filenames.length === 0) {
         return '<p class="file-list-empty">No files yet — use the button above to add.</p>';
@@ -626,8 +494,7 @@
     }
 
     async function refreshImages() {
-      if (!iid()) return;
-      const res = await fetch(`${API}/api/instances/${iid()}/images`, {
+      const res = await fetch(`${API}/api/images`, {
         headers: { Accept: 'application/json' },
       });
       const raw = await res.text();
@@ -673,11 +540,11 @@
     }
 
     async function deleteImageFile(name) {
-      if (!iid() || !name) return;
+      if (!name) return;
       if (!confirm(`Remove "${name}" from the carousel queue?`)) return;
-      const res = await fetch(`${API}/api/instances/${iid()}/images/delete-one`, {
+      const res = await fetch(`${API}/api/images/delete-one`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({ filename: name }),
       });
       const data = await res.json();
@@ -689,11 +556,11 @@
     }
 
     async function deletePlaylistFile(name) {
-      if (!iid() || !name) return;
+      if (!name) return;
       if (!confirm(`Remove "${name}" from playlist?`)) return;
-      const res = await fetch(`${API}/api/instances/${iid()}/playlist/delete-one`, {
+      const res = await fetch(`${API}/api/playlist/delete-one`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({ filename: name }),
       });
       const data = await res.json();
@@ -705,8 +572,7 @@
     }
 
     async function resetIndex() {
-      if (!iid()) return;
-      const res = await fetch(`${API}/api/instances/${iid()}/images/reset`, {
+      const res = await fetch(`${API}/api/images/reset`, {
         method: 'POST',
         headers: { Accept: 'application/json' },
       });
@@ -740,13 +606,12 @@
     }
 
     async function uploadToImages() {
-      if (!iid()) return;
       const input = document.getElementById('upload-images-input');
-      if (!input.files?.length) return showResult('Select at least one file', 'error');
+      if (!input.files?.length) return showResult('Pasirinkite bent vieną failą', 'error');
       const fd = new FormData();
       for (const f of input.files) fd.append('files', f);
       showResult('Uploading...', 'info');
-      const res = await fetch(`${API}/api/instances/${iid()}/images/upload`, { method: 'POST', body: fd });
+      const res = await fetch(`${API}/api/images/upload`, { method: 'POST', body: fd });
       const raw = await res.text();
       let data = {};
       try {
@@ -765,13 +630,12 @@
     }
 
     async function uploadToPlaylist() {
-      if (!iid()) return;
       const input = document.getElementById('upload-playlist-input');
-      if (!input.files?.length) return showResult('Select at least one file', 'error');
+      if (!input.files?.length) return showResult('Pasirinkite bent vieną failą', 'error');
       const fd = new FormData();
       for (const f of input.files) fd.append('files', f);
       showResult('Uploading...', 'info');
-      const res = await fetch(`${API}/api/instances/${iid()}/playlist/upload`, { method: 'POST', body: fd });
+      const res = await fetch(`${API}/api/playlist/upload`, { method: 'POST', body: fd });
       const raw = await res.text();
       let data = {};
       try {
@@ -791,8 +655,7 @@
 
     // ===================== SCHEDULER =====================
     async function checkScheduler() {
-      if (!iid()) return;
-      const res = await fetch(`${API}/api/instances/${iid()}/scheduler/status`, {
+      const res = await fetch(`${API}/api/scheduler/status`, {
         headers: { Accept: 'application/json' },
       });
       const raw = await res.text();
@@ -814,7 +677,7 @@
       const rows = data.immediate_results || data.results || [];
       const carouselNote = '\n\nThis posts a 3-image carousel (not an MP4). If you see request_id, publishing may take a few minutes.';
       if (!rows.length) {
-        showResult(data.message || 'Nėra įjungtų paskyrų šiai instancijai.', 'error');
+        showResult(data.message || 'Nėra įjungtų paskyrų.', 'error');
         return;
       }
       const hasErr = rows.some(r => r.result && r.result.error);
@@ -828,7 +691,7 @@
       const saved = await saveSettings('all');
       if (!saved) return;
       showResult('Įkeliama…', 'info');
-      const res = await fetch(`${API}/api/instances/${iid()}/scheduler/start`, {
+      const res = await fetch(`${API}/api/scheduler/start`, {
         method: 'POST',
         headers: { Accept: 'application/json' },
       });
@@ -852,8 +715,7 @@
     }
 
     async function stopScheduler() {
-      if (!iid()) return;
-      const res = await fetch(`${API}/api/instances/${iid()}/scheduler/stop`, {
+      const res = await fetch(`${API}/api/scheduler/stop`, {
         method: 'POST',
         headers: { Accept: 'application/json' },
       });
@@ -894,11 +756,10 @@
 
     // ===================== ACTIONS =====================
     async function previewCarousel() {
-      if (!iid()) return;
       const strip = document.getElementById('preview-slides');
       strip.innerHTML = '';
       showResult('Generating preview...', 'info');
-      const res = await fetch(`${API}/api/instances/${iid()}/preview`, {
+      const res = await fetch(`${API}/api/preview`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ queue_offset: previewQueueOffset }),
@@ -940,9 +801,8 @@
     }
 
     async function uploadNow() {
-      if (!iid()) return;
       showResult('Uploading to Upload-Post / TikTok...', 'info');
-      const res = await fetch(`${API}/api/instances/${iid()}/upload`, {
+      const res = await fetch(`${API}/api/upload`, {
         method: 'POST',
         headers: { Accept: 'application/json' },
       });
